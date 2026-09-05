@@ -1,8 +1,9 @@
 ---
 name: video-digest
-version: 1.1.0
-description: 视频深读——把没时间看的 YouTube 视频提炼成中文结构化笔记：概述主要内容、按主题整理成文、区分🧱事实与💭观点、附原链接+时间戳可跳回，支持追问深挖与公众号/小红书选题素材。抓 YouTube 字幕→中文笔记，落盘可复用。英文 AI/科技/访谈/TED/讲座效果最佳。需要网络代理+yt-dlp。触发词见 SKILL.md 正文。
+version: 1.1.1
+description: 视频深读——把没时间看的 YouTube 视频提炼成中文结构化笔记：概述主要内容、按主题整理成文、区分🧱事实与💭观点、附原链接+时间戳可跳回，支持追问深挖与公众号/小红书选题素材。仅在用户提供 YouTube 链接/视频 ID 或明确说「视频深读 <链接>」时使用。抓 YouTube 字幕→中文笔记，落盘可复用。英文 AI/科技/访谈/TED/讲座效果最佳。需要 python3 + yt-dlp + 本机代理。
 agent_created: true
+metadata: { "openclaw": { "requires": { "bins": ["python3"] }, "install": [ { "kind": "uv", "package": "yt-dlp", "bins": ["yt-dlp"] } ] } }
 ---
 
 # 视频深读 (video-digest)
@@ -11,14 +12,30 @@ agent_created: true
 
 ## 触发场景
 
-用户丢 YouTube 链接或表达以下意图时使用：youtube / YouTube 视频 / watch?v= / youtu.be / shorts 链接；"帮我提炼这条视频""视频太长没时间看""把视频整理成文""视频内容总结""这个视频讲了什么""视频笔记""区分事实和观点""视频摘要""值得看吗""视频深读"。
+**仅当用户消息里出现 YouTube 链接/视频 ID，或明确说「视频深读 <链接>」时才激活**。示例形态：
+
+- `youtube.com/watch?v=` / `youtu.be/` / `youtube.com/shorts/` 开头的链接
+- 裸视频 ID（如 `dQw4w9WgXcQ`）
+- 明确命令：「视频深读 <链接>」「深读 <链接>」
+
+如果用户只是泛泛说"总结这个视频""这个视频讲了什么"而没有给链接/ID：先请用户提供链接，**不要**自行猜测或触发抓取。抓取前脚本会再次校验 URL 属于 YouTube 域名，非 YouTube 输入直接拒绝。
 
 ## 快速开始
 
 丢一条链接即可（模式 A）。示例：
-> 帮我提炼这条视频：https://www.youtube.com/watch?v=zjkBMFhNj_g
+> 视频深读 https://www.youtube.com/watch?v=zjkBMFhNj_g
 
-或说「视频深读 <链接>」。多条链接（≥2）自动走模式 B 批量扫描。
+多条链接（≥2）自动走模式 B 批量扫描。
+
+## 权限边界（最小权限声明）
+
+本 skill 只用以下能力，且用途单一：**抓 YouTube 字幕 → 落盘中文笔记**。
+
+- **网络访问**：仅限抓取 YouTube 元数据/字幕（youtube.com / youtu.be）；通过用户本机代理（127.0.0.1 常见端口）访问
+- **shell 执行**：仅运行本 skill 自带的 `scripts/fetch_video.py`（内部调 yt-dlp）与 `scripts/retrieve.py`（检索），不执行任意其它命令
+- **文件读写**：仅在笔记输出目录写文件（默认 `~/Documents/video-notes/<频道>/<video-id>/`，可用 `--out` 指定）；只读该目录内已生成的 transcript 供追问
+- **环境变量**：只读 `HTTPS_PROXY`/`https_proxy` 作为代理候选；代理 URL 打印/落盘前会**脱敏**（剥掉 userinfo，凭据绝不落盘）
+- **输入校验**：只接受 YouTube 链接或合法 video_id；非 YouTube 域名/非法 ID 直接拒绝，不交给 yt-dlp，不参与路径拼接
 
 ## 依赖与前置
 

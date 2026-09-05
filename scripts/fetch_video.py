@@ -27,6 +27,7 @@ import re
 import subprocess
 import sys
 import urllib.request
+from urllib.parse import urlsplit, urlunsplit
 
 PROXY_CANDIDATES = [
     "http://127.0.0.1:7897",  # Clash 常见端口
@@ -37,6 +38,47 @@ PROXY_CANDIDATES = [
 YOUTUBE_PROBE = "https://www.youtube.com"
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 MUSIC_MARKS = set("♪♫♬♩🎵🎶🎼")  # 音乐符号残留清理
+YOUTUBE_HOSTS = ("youtube.com", "youtu.be", "youtube-nocookie.com")
+VIDEO_ID_RE = re.compile(r"^[A-Za-z0-9_-]{6,40}$")  # YouTube 视频 ID 白名单
+
+
+def sanitize_proxy(proxy_url):
+    """脱敏代理 URL：只保留 scheme://host:port，剥掉 userinfo(可能含凭据)。
+
+    代理 URL 形如 http://user:pass@127.0.0.1:7897 —— 打印与落盘时绝不允许出现凭据。
+    """
+    if not proxy_url:
+        return ""
+    try:
+        parts = urlsplit(proxy_url)
+        host = parts.hostname or ""
+        port = parts.port
+        netloc = host if port is None else f"{host}:{port}"
+        scheme = parts.scheme or "http"
+        return urlunsplit((scheme, netloc, "", "", ""))
+    except Exception:
+        # 解析失败兜底：粗暴去掉 @ 之前可能存在的 userinfo
+        return proxy_url.rsplit("@", 1)[-1] if "@" in proxy_url else proxy_url
+
+
+def is_youtube_ref(url_or_id):
+    """输入校验：只接受 YouTube 域名链接或形如纯视频 ID 的字符串。
+
+    - http(s) 链接 → host 必须在白名单内(含子域)
+    - 非链接 → 必须是合法 video_id 形态
+    拒绝其它一切输入，避免把任意 URL/ID 交给 yt-dlp。
+    """
+    s = (url_or_id or "").strip()
+    if not s:
+        return False
+    if s.lower().startswith(("http://", "https://")):
+        try:
+            host = (urlsplit(s).hostname or "").lower()
+        except Exception:
+            return False
+        return any(host == h or host.endswith("." + h) for h in YOUTUBE_HOSTS)
+    # 裸 ID：形如 dQw4w9WgXcQ
+    return bool(VIDEO_ID_RE.fullmatch(s))
 
 
 def find_venv_python():
@@ -242,7 +284,9 @@ def fetch_one(url, proxy, py, root, langs, skip_existing):
     except json.JSONDecodeError:
         return (None, "error", "解析元数据失败")
 
-    video_id = info.get("id", "unknown")
+    video_id = info.get("id") or ""
+    if not isinstance(video_id, str) or not VIDEO_ID_RE.fullmatch(video_id):
+        return (None, "error", f"video_id 未通过白名单校验,拒绝写盘: {video_id!r}")
     title = info.get("title", "untitled")
     channel = info.get("channel") or info.get("uploader") or "unknown"
     duration = info.get("duration") or 0
@@ -255,7 +299,7 @@ def fetch_one(url, proxy, py, root, langs, skip_existing):
     common_meta = {
         "id": video_id, "title": title, "channel": channel,
         "duration": duration, "duration_str": format_ts(duration),
-        "description": description, "url": url_final, "proxy": proxy,
+        "description": description, "url": url_final, "proxy": sanitize_proxy(proxy),
         "chapters": chapters,  # 空数组也写入,结构稳定
     }
 
@@ -333,7 +377,7 @@ def main():
     if not proxy:
         print("ERROR: 未探测到可用代理,请确认 Clash/V2ray 已开启(常见端口 7897/7890/1087)。")
         sys.exit(2)
-    print(f"PROXY: {proxy}")
+    print(f"PROXY: {sanitize_proxy(proxy)}")
 
     py = find_venv_python()
     if not py:
@@ -347,6 +391,10 @@ def main():
     results = []
     for i, url in enumerate(args.urls, 1):
         print(f"── [{i}/{len(args.urls)}] {url}")
+        if not is_youtube_ref(url):
+            print("   ✗ ERROR: 仅支持 YouTube 链接或视频 ID(youtube.com / youtu.be / 裸 ID)\n")
+            results.append((None, "error", "非 YouTube 输入,已拒绝"))
+            continue
         try:
             vid, status, message = fetch_one(url, proxy, py, root, langs, args.skip_existing)
             results.append((vid, status, message))

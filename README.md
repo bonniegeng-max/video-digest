@@ -30,6 +30,8 @@ openclaw skills install video-digest
 pip install yt-dlp
 ```
 
+> 供应链提示：为可复现安装，建议固定 yt-dlp 版本（如 `pip install yt-dlp==2025.xx.x`），并按需升级。
+
 ## 怎么用
 
 丢一条 YouTube 链接即可：
@@ -88,6 +90,18 @@ TL;DR（2-3 句读完不用看视频）
 - YouTube 自动字幕是"滚动窗口式"的（每行重复前文），脚本用最长重叠融合算法去重，3380 碎片可清洗成约 216 个语义句块
 - 无字幕的视频会明确告知（当前版本不做本地 Whisper 转写，以后可扩展）
 - 笔记存档：`~/Documents/video-notes/<频道>/<video-id>/`（meta.json + transcript.txt + note.md）
+
+## 隐私与数据保留
+
+抓取会把以下内容**保存在本机**，请知悉：
+
+- **存什么**：`meta.json`（标题/频道/时长/简介/章节/字幕语言，**代理地址已脱敏**，不含任何凭据）、`transcript.txt`（完整字幕原文）、`note.md`（AI 生成的中文笔记）
+- **存哪里**：默认 `~/Documents/video-notes/<频道>/<video-id>/`。字幕原文可能反映你的观看与研究兴趣，请存放在你认为安全的位置
+- **存多久**：不自动删除，除非你手动清理
+- **如何改位置**：加 `--out <目录>` 参数可指定输出目录
+- **如何删除**：删除单个视频：`rm -rf ~/Documents/video-notes/<频道>/<video-id>`；删除全部：`rm -rf ~/Documents/video-notes`
+
+代理安全：脚本只把代理 URL 的 `scheme://host:port` 打印或写入 meta.json，`user:password@` 凭据部分一律剥掉，不会出现在日志或存档里。
 
 ## License
 
