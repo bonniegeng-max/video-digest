@@ -45,6 +45,25 @@ pip install yt-dlp
 | C 追问深挖 | 读笔记后继续问 | 按问题检索字幕原文，带时间戳精读回答 |
 | D 选题素材 | 笔记尾部自带 | 2-3 个公众号/小红书选题钩子（不写稿） |
 
+### 命令行进阶
+
+```bash
+# 批量抓取（模式 B，一次传多个 URL，代理只探测一次）
+python scripts/fetch_video.py <url1> <url2> <url3>
+
+# 复用已有存档（模式 C 追问前用，已有字幕则跳过）
+python scripts/fetch_video.py <url> --skip-existing
+
+# 追问检索（模式 C）：按关键词 / 时间戳区间 / 索引 定位原文
+python scripts/retrieve.py <transcript.txt> "关键词"
+python scripts/retrieve.py <transcript.txt> --at 3:20 --window 90
+python scripts/retrieve.py <transcript.txt> --list
+```
+
+### 章节信息
+
+有官方章节(chapters)的长视频，抓取时会写入 `meta.json` 的 `chapters` 字段，提炼时优先参考章节做大纲，分节更准。
+
 ## 笔记长什么样
 
 完整样张见 [`references/examples/`](references/examples/)：
