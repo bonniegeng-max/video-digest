@@ -1,6 +1,6 @@
 ---
 name: video-digest
-version: 1.1.1
+version: 1.1.2
 description: 视频深读——把没时间看的 YouTube 视频提炼成中文结构化笔记：概述主要内容、按主题整理成文、区分🧱事实与💭观点、附原链接+时间戳可跳回，支持追问深挖与公众号/小红书选题素材。仅在用户提供 YouTube 链接/视频 ID 或明确说「视频深读 <链接>」时使用。抓 YouTube 字幕→中文笔记，落盘可复用。英文 AI/科技/访谈/TED/讲座效果最佳。需要 python3 + yt-dlp + 本机代理。
 agent_created: true
 metadata: { "openclaw": { "requires": { "bins": ["python3"] }, "install": [ { "kind": "uv", "package": "yt-dlp", "bins": ["yt-dlp"] } ] } }
