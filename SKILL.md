@@ -1,7 +1,7 @@
 ---
 name: video-digest
-version: 1.0.0
-description: 视频深读——把 YouTube 优质视频高效提炼成中文结构化笔记（没时间看视频/把视频整理成文/视频内容总结/视频太长没时间看/帮我提炼这条视频/这个视频讲了什么/区分事实和观点/视频笔记/YouTube 视频摘要/youtube video summary/视频选题素材）。核心能力：抓 YouTube 英文字幕→按主题整理成文，概述主要内容，区分🧱事实与💭观点，附原链接与时间戳可跳回；笔记落盘 ~/Documents/video-notes/ 供后续追问深挖（模式 C）与公众号/小红书选题素材（模式 D）。需要网络代理（本机 Clash 7897 等），英文 AI/科技类视频效果最佳。触发词：youtube、YouTube、视频链接、watch?v=、youtu.be、这条视频、视频太长、没时间看、把视频整理成文、提炼视频、视频摘要、视频讲了啥、视频笔记、事实和观点、值得看吗。零额外 API key，依赖 yt-dlp（自动探测托管 venv）。
+version: 1.1.0
+description: 视频深读——把没时间看的 YouTube 视频提炼成中文结构化笔记：概述主要内容、按主题整理成文、区分🧱事实与💭观点、附原链接+时间戳可跳回，支持追问深挖与公众号/小红书选题素材。抓 YouTube 字幕→中文笔记，落盘可复用。英文 AI/科技/访谈/TED/讲座效果最佳。需要网络代理+yt-dlp。触发词见 SKILL.md 正文。
 agent_created: true
 ---
 
@@ -9,12 +9,16 @@ agent_created: true
 
 把"没时间看的 YouTube 优质视频"变成「能 5 分钟读完、可跳回原片、可追问深挖、可当选题素材」的中文结构化笔记。适合英文 AI/科技类长视频、访谈、讲座。
 
+## 触发场景
+
+用户丢 YouTube 链接或表达以下意图时使用：youtube / YouTube 视频 / watch?v= / youtu.be / shorts 链接；"帮我提炼这条视频""视频太长没时间看""把视频整理成文""视频内容总结""这个视频讲了什么""视频笔记""区分事实和观点""视频摘要""值得看吗""视频深读"。
+
 ## 快速开始
 
 丢一条链接即可（模式 A）。示例：
 > 帮我提炼这条视频：https://www.youtube.com/watch?v=zjkBMFhNj_g
 
-或说「视频深读 <链接>」。
+或说「视频深读 <链接>」。多条链接（≥2）自动走模式 B 批量扫描。
 
 ## 依赖与前置
 
@@ -25,17 +29,23 @@ agent_created: true
 ## 抓取脚本用法
 
 ```bash
-# 单个视频
-python <skill_dir>/scripts/fetch_video.py "<youtube_url>" [--out <目录>]
+# 单条(模式 A)
+python <skill_dir>/scripts/fetch_video.py "<youtube_url>"
 
-# 输出目录默认 ~/Documents/video-notes/；可指定 --langs en,zh 调整字幕偏好
+# 批量(模式 B,多条一次抓,代理只探测一次)
+python <skill_dir>/scripts/fetch_video.py url1 url2 url3
+
+# 复用存档(已有 transcript 则跳过,模式 C 追问前用)
+python <skill_dir>/scripts/fetch_video.py "<url>" --skip-existing
+
+# 可选参数: --out <目录>(默认 ~/Documents/video-notes) --langs en,zh
 ```
 
 脚本产出（`~/Documents/video-notes/<频道>/<video-id>/`）：
-- `meta.json` — 标题/频道/时长/简介/原链接/字幕语言
+- `meta.json` — 标题/频道/时长/简介/原链接/章节(chapters)/字幕语言
 - `transcript.txt` — 带 `[MM:SS]` 时间戳的连贯文本（已做 ASR 滚动窗口融合去重，每行≈1 个完整语义句块）
 
-退出码：0 成功 | 2 环境不可用(代理/yt-dlp) | 3 视频不可达 | 4 无字幕。stdout 关键行：`PROXY:`、`OK:`、`NO_SUBTITLE:`、`ERROR:`、`DIR:`。
+退出码：0 成功/跳过 | 2 环境不可用(代理/yt-dlp) | 3 视频不可达 | 4 无字幕。stdout 关键行：`PROXY:`、`✓ OK`、`⏭ 跳过`、`⚠ 无字幕`、`✗ ERROR`、`DIR:`。批量时单条失败不中断，末尾有汇总。
 
 ## 示例样张（references/examples/）
 
@@ -55,18 +65,23 @@ python <skill_dir>/scripts/fetch_video.py "<youtube_url>" [--out <目录>]
 ### 模式 B · 批量扫描
 
 用户丢多条链接（≥2 条）时：
-1. 逐条跑抓取脚本（可并行）
+1. 一次传多个 URL 跑抓取脚本（批量模式，自动汇总每条状态）
 2. 每条只出 TL;DR 卡片：**一句话核心 + 🧱事实1条 + 💭观点1条 + 值不值得深读判断**（含原链接）
 3. 合成一份清单交付；用户圈选想深读的，再转模式 A
 
-批量优先建议：告诉用户一次别超过 5 条，抓取要过代理较慢。
+批量优先建议：告诉用户一次别超过 5 条，抓取要过代理较慢（每条 10-60s）。
 
 ### 模式 C · 追问深挖
 
 用户基于已提炼的视频追问（"他对 X 的论证是什么""3:20 那句展开讲"）：
-1. 先查 `~/Documents/video-notes/<频道>/<video-id>/transcript.txt` 是否已有
-2. 没有则先跑抓取脚本
-3. 用 Grep 在 transcript 里定位关键词/时间戳附近原文，把上下文片段交给 LLM 精读回答
+1. 先查 `~/Documents/video-notes/<频道>/<video-id>/transcript.txt` 是否已有；没有则先跑抓取脚本（`--skip-existing` 保险）
+2. 用 `scripts/retrieve.py` 从 transcript 定位原文：
+   ```bash
+   python <skill_dir>/scripts/retrieve.py <transcript.txt> "关键词"         # 关键词 ±上下文
+   python <skill_dir>/scripts/retrieve.py <transcript.txt> --at 3:20 --window 90  # 3:20 前后 90 秒
+   python <skill_dir>/scripts/retrieve.py <transcript.txt> --list           # 时间戳分布索引
+   ```
+3. 把检索到的上下文片段交给 LLM 精读回答
 4. 回答要标注所依据的时间戳区间，可跳回原片核实
 
 ### 模式 D · 选题素材（笔记尾部，不写稿）
@@ -80,6 +95,7 @@ python <skill_dir>/scripts/fetch_video.py "<youtube_url>" [--out <目录>]
 
 - transcript 字符数 ≤ ~90k（≈25k token）→ 单次读完直接提炼
 - 超长 → 按 `[MM:SS]` 语义分段（每段 ~10 分钟），逐段让 LLM 出小节要点，再合并成终稿。合并时保留下每个要点的原始时间戳
+- **有章节(chapters)的视频**：`meta.json` 的 chapters 字段含官方分节（start/end/title），提炼时优先参考它做大纲草稿，再结合字幕补细节——比纯听字幕分节准
 - 时间戳格式保持 `MM:SS`（≥1 小时为 `H:MM:SS`），中文笔记里用同样的标记，方便用户跳回
 
 ## 输出语言与字幕
@@ -101,3 +117,4 @@ python <skill_dir>/scripts/fetch_video.py "<youtube_url>" [--out <目录>]
 - 视频不可用/地区限制/年龄限制 → 透出具体错误，建议换视频或说明原因
 - 视频无字幕 → 明确告知无法提炼（当前版本不做本地 Whisper 转写）
 - 抓取慢 → 过代理 + 字幕下载通常需 10-60 秒，批量时串行提示耐心
+

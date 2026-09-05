@@ -5,15 +5,20 @@ video-digest / fetch_video.py
 抓取 YouTube 视频元数据 + 字幕,解析为带时间戳的纯文本 transcript。
 
 用法:
-    python fetch_video.py <youtube_url> [--out <目录>] [--langs en,zh]
+    python fetch_video.py <url1> [url2 url3 ...] [--out <目录>] [--langs en,zh] [--skip-existing]
+
+    # 单条:     python fetch_video.py https://www.youtube.com/watch?v=xxx
+    # 批量:     python fetch_video.py url1 url2 url3     (代理只探测一次)
+    # 复用存档: python fetch_video.py url --skip-existing (已有 transcript 则跳过)
 
 输出:
-    落在 <out>/<频道>/<video-id>/
-    meta.json        视频元数据(标题/频道/时长/简介/字幕语言)
+    每个视频落在 <out>/<频道>/<video-id>/
+    meta.json        视频元数据(标题/频道/时长/简介/章节/字幕语言)
     transcript.txt   带 [MM:SS] 时间戳的纯文本(行内去重合并)
 
 退出码:
-    0 成功 | 2 代理/python 环境不可用 | 3 视频不可达/下载失败 | 4 无可用字幕
+    0 全部成功或按预期跳过 | 2 代理/python 环境不可用 | 3 视频不可达 | 4 有视频无字幕
+    (批量时: 单个视频失败不中断,继续抓下一个,末尾汇总)
 """
 import argparse
 import json
@@ -31,6 +36,7 @@ PROXY_CANDIDATES = [
 ]
 YOUTUBE_PROBE = "https://www.youtube.com"
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+MUSIC_MARKS = set("♪♫♬♩🎵🎶🎼")  # 音乐符号残留清理
 
 
 def find_venv_python():
@@ -88,9 +94,10 @@ def format_ts(seconds):
 
 
 def clean_line(line):
-    line = re.sub(r"<[^>]+>", "", line)          # 去 html 标签
-    line = re.sub(r"\[[^\]]*\]", "", line).strip()  # 去 [Music] 等
-    return line
+    line = re.sub(r"<[^>]+>", "", line)               # 去 html 标签
+    line = re.sub(r"\[[^\]]*\]", "", line).strip()    # 去 [Music] 等
+    line = "".join(ch for ch in line if ch not in MUSIC_MARKS)  # 去 ♪♫ 残留
+    return line.strip()
 
 
 def parse_vtt(vtt_text):
@@ -187,11 +194,139 @@ def write_meta(vdir, meta):
         json.dump(meta, f, ensure_ascii=False, indent=2)
 
 
+def safe_dirname(channel):
+    """频道名 → 安全目录名:去首尾空白与非法字符,压缩中间空白。"""
+    name = (channel or "channel").strip()
+    name = re.sub(r"\s+", "_", name)
+    name = re.sub(r'[^\w\u4e00-\u9fff-]', "_", name).strip("_")
+    return name[:60] or "channel"
+
+
+def extract_chapters(info):
+    """从 info 提取章节 → [{start, end, title}] (start/end 为 MM:SS 字符串)。"""
+    chapters = []
+    for ch in info.get("chapters") or []:
+        start = ch.get("start_time") or ch.get("start") or 0
+        end = ch.get("end_time") or ch.get("end") or 0
+        title = (ch.get("title") or "").strip()
+        if title:
+            chapters.append({"start": format_ts(start), "end": format_ts(end), "title": title})
+    return chapters
+
+
+def fetch_one(url, proxy, py, root, langs, skip_existing):
+    """抓取单个视频,返回 (video_id, status, message)。
+    status: ok / skipped / no_subtitle / error
+    """
+    # ---- Step 1: 元数据 ----
+    dump_cmd = [py, "-m", "yt_dlp", "--dump-json", "--skip-download",
+                "--proxy", proxy, "--no-warnings", url]
+    try:
+        proc = subprocess.run(dump_cmd, capture_output=True, text=True, timeout=120)
+    except subprocess.TimeoutExpired:
+        return (None, "error", "获取视频信息超时")
+
+    if proc.returncode != 0:
+        err = (proc.stderr or proc.stdout or "")[-800:]
+        low = err.lower()
+        if "video unavailable" in low or "is unavailable" in low or "unsupported url" in low or "not found" in low or "unable to extract" in low:
+            msg = "视频不可达/链接无效"
+        elif "sign in" in low or "age" in low or "confirm" in low or "restricted" in low:
+            msg = "视频受限制(需登录/年龄验证/地区限制)"
+        else:
+            msg = "yt-dlp 获取信息失败"
+        return (None, "error", f"{msg}\n{err}")
+
+    try:
+        info = json.loads(proc.stdout)
+    except json.JSONDecodeError:
+        return (None, "error", "解析元数据失败")
+
+    video_id = info.get("id", "unknown")
+    title = info.get("title", "untitled")
+    channel = info.get("channel") or info.get("uploader") or "unknown"
+    duration = info.get("duration") or 0
+    description = (info.get("description") or "")[:2000]
+    url_final = f"https://www.youtube.com/watch?v={video_id}"
+    safe_channel = safe_dirname(channel)
+    vdir = os.path.join(root, safe_channel, video_id)
+    chapters = extract_chapters(info)
+
+    common_meta = {
+        "id": video_id, "title": title, "channel": channel,
+        "duration": duration, "duration_str": format_ts(duration),
+        "description": description, "url": url_final, "proxy": proxy,
+        "chapters": chapters,  # 空数组也写入,结构稳定
+    }
+
+    # --skip-existing: 已有非空 transcript 则跳过
+    transcript_path = os.path.join(vdir, "transcript.txt")
+    if skip_existing and os.path.exists(transcript_path) and os.path.getsize(transcript_path) > 0:
+        return (video_id, "skipped", f"已存在存档,跳过: {vdir}")
+
+    # ---- Step 2: 挑字幕 ----
+    chosen = pick_subtitle(info, langs)
+    if not chosen:
+        write_meta(vdir, {**common_meta, "has_subtitle": False})
+        return (video_id, "no_subtitle", f"{title}\n无可用字幕(手动/自动都没有): {vdir}")
+
+    lang_code, track_key, is_auto = chosen
+
+    # ---- Step 3: 下载字幕(失败自动重试一次) ----
+    def build_cmd():
+        cmd = [py, "-m", "yt_dlp", "--skip-download", "--proxy", proxy, "--no-warnings"]
+        cmd += ["--write-auto-subs"] if is_auto else ["--write-subs"]
+        cmd += ["--sub-langs", lang_code, "--sub-format", "vtt/best",
+                "-o", os.path.join(vdir, "%(id)s.%(ext)s"), url]
+        return cmd
+
+    proc2 = None
+    for attempt in (1, 2):
+        try:
+            proc2 = subprocess.run(build_cmd(), capture_output=True, text=True, timeout=180)
+            if proc2.returncode == 0:
+                break
+        except subprocess.TimeoutExpired:
+            proc2 = None
+            if attempt == 1:
+                continue
+    # 下载后找 vtt
+    vtt_file = next((os.path.join(vdir, fn) for fn in os.listdir(vdir)
+                     if fn.endswith(".vtt")), None)
+    if vtt_file is None:
+        write_meta(vdir, {**common_meta, "has_subtitle": False})
+        return (video_id, "no_subtitle", f"{title}\n字幕下载失败或无字幕文件: {vdir}")
+
+    with open(vtt_file, encoding="utf-8") as f:
+        vtt_text = f.read()
+    blocks = parse_vtt(vtt_text)
+    if not blocks:
+        write_meta(vdir, {**common_meta, "has_subtitle": False})
+        return (video_id, "no_subtitle", f"{title}\n字幕内容为空: {vdir}")
+
+    with open(transcript_path, "w", encoding="utf-8") as f:
+        for s, t in blocks:
+            t_clean = re.sub(r"\s+", " ", t).strip()  # 折叠行内多余空白
+            f.write(f"[{format_ts(s)}] {t_clean}\n")
+
+    try:
+        os.remove(vtt_file)
+    except OSError:
+        pass
+
+    write_meta(vdir, {**common_meta, "subtitle_lang": lang_code,
+                      "subtitle_manual": not is_auto, "has_subtitle": True,
+                      "blocks": len(blocks)})
+    return (video_id, "ok", f"{title} | {channel} | {format_ts(duration)} | {lang_code} | {len(blocks)}块 | {vdir}")
+
+
 def main():
-    ap = argparse.ArgumentParser(description="抓取 YouTube 元数据+字幕")
-    ap.add_argument("url", help="YouTube 视频 URL 或 ID")
+    ap = argparse.ArgumentParser(description="抓取 YouTube 元数据+字幕(支持多 URL 批量)")
+    ap.add_argument("urls", nargs="+", help="YouTube 视频 URL 或 ID(可传多个)")
     ap.add_argument("--out", default=None, help="输出根目录(默认 ~/Documents/video-notes)")
     ap.add_argument("--langs", default="en,zh", help="字幕语言偏好,默认 en,zh")
+    ap.add_argument("--skip-existing", action="store_true",
+                    help="已有非空 transcript 则跳过(模式 C 复用存档)")
     args = ap.parse_args()
 
     proxy = pick_proxy()
@@ -208,113 +343,45 @@ def main():
     langs = [l.strip().lower() for l in args.langs.split(",") if l.strip()]
     root = args.out or os.path.expanduser("~/Documents/video-notes")
 
-    # ---- Step 1: 元数据 ----
-    dump_cmd = [py, "-m", "yt_dlp", "--dump-json", "--skip-download",
-                "--proxy", proxy, "--no-warnings", args.url]
-    try:
-        proc = subprocess.run(dump_cmd, capture_output=True, text=True, timeout=120)
-    except subprocess.TimeoutExpired:
-        print("ERROR: 获取视频信息超时,网络慢或视频不存在。")
-        sys.exit(3)
-
-    if proc.returncode != 0:
-        err = (proc.stderr or proc.stdout or "")[-800:]
-        low = err.lower()
-        if "video unavailable" in low or "is unavailable" in low or "unsupported url" in low or "not found" in low or "unable to extract" in low:
-            print(f"ERROR: 视频不可达/链接无效。\n{err}")
-        elif "sign in" in low or "age" in low or "confirm" in low or "restricted" in low:
-            print(f"ERROR: 视频受限制(需登录/年龄验证/地区限制)。\n{err}")
+    print(f"待抓取 {len(args.urls)} 条视频...\n")
+    results = []
+    for i, url in enumerate(args.urls, 1):
+        print(f"── [{i}/{len(args.urls)}] {url}")
+        try:
+            vid, status, message = fetch_one(url, proxy, py, root, langs, args.skip_existing)
+            results.append((vid, status, message))
+        except Exception as e:
+            results.append((None, "error", str(e)))
+        if status == "ok":
+            print(f"   ✓ OK: {message}\n")
+        elif status == "skipped":
+            print(f"   ⏭ 跳过: {message}\n")
+        elif status == "no_subtitle":
+            print(f"   ⚠ 无字幕: {message}\n")
         else:
-            print(f"ERROR: yt-dlp 获取信息失败。\n{err}")
+            print(f"   ✗ ERROR: {message}\n")
+
+    # ---- 汇总 ----
+    print("=" * 50)
+    print(f"汇总: {len(results)} 条")
+    ok_count = 0
+    for vid, status, message in results:
+        if status == "ok":
+            ok_count += 1
+            print(f"  ✓ OK       | {message.split('|')[0][:50]}")
+        elif status == "skipped":
+            print(f"  ⏭ 已存在   | {message}")
+        elif status == "no_subtitle":
+            print(f"  ⚠ 无字幕   | {message.splitlines()[0][:60]}")
+        else:
+            print(f"  ✗ ERROR    | {message.splitlines()[0][:60]}")
+
+    # 退出码: 有 error → 3; 有 no_subtitle → 4; 全 ok/skipped → 0
+    if any(s == "error" for _, s, _ in results):
         sys.exit(3)
-
-    try:
-        info = json.loads(proc.stdout)
-    except json.JSONDecodeError:
-        print("ERROR: 解析元数据失败。")
-        sys.exit(3)
-
-    video_id = info.get("id", "unknown")
-    title = info.get("title", "untitled")
-    channel = info.get("channel") or info.get("uploader") or "unknown"
-    duration = info.get("duration") or 0
-    description = (info.get("description") or "")[:2000]
-    url = f"https://www.youtube.com/watch?v={video_id}"
-    safe_channel = re.sub(r'[^\w\u4e00-\u9fff-]', "_", channel)[:60] or "channel"
-    vdir = os.path.join(root, safe_channel, video_id)
-
-    common_meta = {
-        "id": video_id, "title": title, "channel": channel,
-        "duration": duration, "duration_str": format_ts(duration),
-        "description": description, "url": url, "proxy": proxy,
-    }
-
-    # ---- Step 2: 挑字幕 ----
-    chosen = pick_subtitle(info, langs)
-    if not chosen:
-        print("NO_SUBTITLE: 该视频无可用字幕(手动/自动都没有)。")
-        write_meta(vdir, {**common_meta, "has_subtitle": False})
-        print(f"META: {os.path.join(vdir, 'meta.json')}")
-        print("提示: 当前版本不做本地转写,无字幕视频暂无法提炼。")
+    if any(s == "no_subtitle" for _, s, _ in results):
         sys.exit(4)
-
-    lang_code, track_key, is_auto = chosen
-
-    # ---- Step 3: 下载字幕 ----
-    sub_cmd = [py, "-m", "yt_dlp",
-               "--skip-download", "--proxy", proxy, "--no-warnings"]
-    # 自动字幕需要 --write-auto-subs;手动字幕需要 --write-subs
-    if is_auto:
-        sub_cmd += ["--write-auto-subs"]
-    else:
-        sub_cmd += ["--write-subs"]
-    sub_cmd += ["--sub-langs", lang_code,
-                "--sub-format", "vtt/best",
-                "-o", os.path.join(vdir, "%(id)s.%(ext)s"), args.url]
-    try:
-        proc2 = subprocess.run(sub_cmd, capture_output=True, text=True, timeout=180)
-    except subprocess.TimeoutExpired:
-        print("ERROR: 字幕下载超时。")
-        sys.exit(3)
-
-    vtt_file = next((os.path.join(vdir, fn) for fn in os.listdir(vdir)
-                     if fn.endswith(".vtt")), None)
-    if vtt_file is None:
-        print("NO_SUBTITLE: 字幕下载失败或无字幕文件。")
-        write_meta(vdir, {**common_meta, "has_subtitle": False})
-        print(f"META: {os.path.join(vdir, 'meta.json')}")
-        sys.exit(4)
-
-    with open(vtt_file, encoding="utf-8") as f:
-        vtt_text = f.read()
-    blocks = parse_vtt(vtt_text)
-    if not blocks:
-        print("NO_SUBTITLE: 字幕内容为空。")
-        write_meta(vdir, {**common_meta, "has_subtitle": False})
-        sys.exit(4)
-
-    transcript_path = os.path.join(vdir, "transcript.txt")
-    with open(transcript_path, "w", encoding="utf-8") as f:
-        for s, t in blocks:
-            t_clean = re.sub(r"\s+", " ", t).strip()  # 折叠行内多余空白
-            f.write(f"[{format_ts(s)}] {t_clean}\n")
-
-    try:
-        os.remove(vtt_file)
-    except OSError:
-        pass
-
-    write_meta(vdir, {**common_meta, "subtitle_lang": lang_code,
-                      "subtitle_manual": not is_auto, "has_subtitle": True,
-                      "blocks": len(blocks)})
-    print(f"OK: {title}")
-    print(f"CHANNEL: {channel}")
-    print(f"DURATION: {format_ts(duration)}")
-    print(f"LANG: {lang_code} ({'手动' if not is_auto else '自动'})")
-    print(f"BLOCKS: {len(blocks)}")
-    print(f"DIR: {vdir}")
-    print(f"TRANSCRIPT: {transcript_path}")
-    print(f"META: {os.path.join(vdir, 'meta.json')}")
+    sys.exit(0)
 
 
 if __name__ == "__main__":
