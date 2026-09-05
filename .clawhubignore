@@ -1,0 +1,5 @@
+# 发布时排除 Python 字节码与缓存（A.I.G 扫描器拒绝检查 .pyc，CVE-2026-84809）
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
