@@ -1,7 +1,7 @@
 ---
 name: video-digest
-version: 1.1.2
-description: 视频深读——把没时间看的 YouTube 视频提炼成中文结构化笔记：概述主要内容、按主题整理成文、区分🧱事实与💭观点、附原链接+时间戳可跳回，支持追问深挖与公众号/小红书选题素材。仅在用户提供 YouTube 链接/视频 ID 或明确说「视频深读 <链接>」时使用。抓 YouTube 字幕→中文笔记，落盘可复用。英文 AI/科技/访谈/TED/讲座效果最佳。需要 python3 + yt-dlp + 本机代理。
+version: 1.1.3
+description: 视频深读——把没时间看的 YouTube 视频提炼成中文结构化笔记：概述主要内容、按主题整理成文、区分🧱事实与💭观点、附原链接+时间戳可跳回，支持追问深挖与公众号/小红书选题素材。仅在用户提供 YouTube 链接/视频 ID 或明确说「视频深读 <链接>」时使用。抓 YouTube 字幕→中文笔记，落盘可复用。英文 AI/科技/访谈/TED/讲座效果最佳。需要 python3 + yt-dlp + 网络可达 YouTube（本机代理或可直连）。
 agent_created: true
 metadata: { "openclaw": { "requires": { "bins": ["python3"] }, "install": [ { "kind": "uv", "package": "yt-dlp", "bins": ["yt-dlp"] } ] } }
 ---
@@ -31,7 +31,7 @@ metadata: { "openclaw": { "requires": { "bins": ["python3"] }, "install": [ { "k
 
 本 skill 只用以下能力，且用途单一：**抓 YouTube 字幕 → 落盘中文笔记**。
 
-- **网络访问**：仅限抓取 YouTube 元数据/字幕（youtube.com / youtu.be）；通过用户本机代理（127.0.0.1 常见端口）访问
+- **网络访问**：仅限抓取 YouTube 元数据/字幕（youtube.com / youtu.be）；优先走用户本机代理（127.0.0.1 常见端口），不可用时直连
 - **shell 执行**：仅运行本 skill 自带的 `scripts/fetch_video.py`（内部调 yt-dlp）与 `scripts/retrieve.py`（检索），不执行任意其它命令
 - **文件读写**：仅在笔记输出目录写文件（默认 `~/Documents/video-notes/<频道>/<video-id>/`，可用 `--out` 指定）；只读该目录内已生成的 transcript 供追问
 - **环境变量**：只读 `HTTPS_PROXY`/`https_proxy` 作为代理候选；代理 URL 打印/落盘前会**脱敏**（剥掉 userinfo，凭据绝不落盘）
@@ -39,7 +39,7 @@ metadata: { "openclaw": { "requires": { "bins": ["python3"] }, "install": [ { "k
 
 ## 依赖与前置
 
-- 需要本机有可用代理（Clash/V2ray，常见端口 7897/7890/1087），脚本自动探测，探测不到会明确报错并提示开代理
+- 网络：脚本自动探测本机代理（Clash/V2ray，常见端口 7897/7890/1087）；探测不到会自动试直连 YouTube，直连可用则走直连；两者都不通才报错退出。海外网络/企业出口可直连的环境，可加 `--direct` 跳过代理探测
 - 需要 yt-dlp：脚本自动定位托管 venv（`~/.workbuddy/binaries/python/envs/default/bin/python`）；若提示找不到，安装：`pip install yt-dlp`
 - 无字幕的视频（无手动字幕也无自动字幕）→ 明确告知无法提炼，不做本地转写
 
@@ -55,6 +55,9 @@ python <skill_dir>/scripts/fetch_video.py url1 url2 url3
 # 复用存档(已有 transcript 则跳过,模式 C 追问前用)
 python <skill_dir>/scripts/fetch_video.py "<url>" --skip-existing
 
+# 直连(不走代理探测;海外网络或企业出口可直连 YouTube 时用)
+python <skill_dir>/scripts/fetch_video.py "<url>" --direct
+
 # 可选参数: --out <目录>(默认 ~/Documents/video-notes) --langs en,zh
 ```
 
@@ -62,7 +65,7 @@ python <skill_dir>/scripts/fetch_video.py "<url>" --skip-existing
 - `meta.json` — 标题/频道/时长/简介/原链接/章节(chapters)/字幕语言
 - `transcript.txt` — 带 `[MM:SS]` 时间戳的连贯文本（已做 ASR 滚动窗口融合去重，每行≈1 个完整语义句块）
 
-退出码：0 成功/跳过 | 2 环境不可用(代理/yt-dlp) | 3 视频不可达 | 4 无字幕。stdout 关键行：`PROXY:`、`✓ OK`、`⏭ 跳过`、`⚠ 无字幕`、`✗ ERROR`、`DIR:`。批量时单条失败不中断，末尾有汇总。
+退出码：0 成功/跳过 | 2 环境不可用(代理/yt-dlp) | 3 视频不可达 | 4 无字幕。stdout 关键行：`PROXY:`、`NET:`（直连模式）、`✓ OK`、`⏭ 跳过`、`⚠ 无字幕`、`✗ ERROR`、`DIR:`。批量时单条失败不中断，末尾有汇总。
 
 ## 示例样张（references/examples/）
 
@@ -74,10 +77,18 @@ python <skill_dir>/scripts/fetch_video.py "<url>" --skip-existing
 
 ### 模式 A · 单条深读（默认）
 
-1. 跑抓取脚本拿 meta + transcript
+1. 跑抓取脚本拿 meta + transcript（脚本会打印进度，正常单条约 10-30 秒）
 2. 读 transcript（若 >30k token 先切块小节概述再合并，见"长视频"）
 3. 按 `references/note_template.md` 模板产出中文笔记，对话内交付
 4. 把笔记存为 `<video-notes>/<频道>/<video-id>/note.md`（脚本已建好目录，直接写文件），供模式 C 复用
+5. **落盘后回读校验**：确认 note.md 确实写入且非空（文件存在 + 字符数 > 0）。校验失败要如实告知"笔记未成功落盘"，不要假装已存
+6. **追加索引行**：在 `~/Documents/video-notes/INDEX.md` 末尾追加一行（文件不存在则先写表头），方便日后翻找已深读的视频：
+
+   ```markdown
+   | 日期 | 频道 | 标题 | 时长 | 原链接 | 笔记 |
+   |---|---|---|---|---|---|
+   | 2026-09-05 | 3Blue1Brown | 注意力机制 | 22:00 | https://youtu.be/... | 3Blue1Brown/9-Jl0dxWQs8/note.md |
+   ```
 
 ### 模式 B · 批量扫描
 
@@ -86,7 +97,7 @@ python <skill_dir>/scripts/fetch_video.py "<url>" --skip-existing
 2. 每条只出 TL;DR 卡片：**一句话核心 + 🧱事实1条 + 💭观点1条 + 值不值得深读判断**（含原链接）
 3. 合成一份清单交付；用户圈选想深读的，再转模式 A
 
-批量优先建议：告诉用户一次别超过 5 条，抓取要过代理较慢（每条 10-60s）。
+批量优先建议：告诉用户一次别超过 5 条，抓取较慢（每条 10-60s，走代理时更慢）。
 
 ### 模式 C · 追问深挖
 
@@ -94,18 +105,22 @@ python <skill_dir>/scripts/fetch_video.py "<url>" --skip-existing
 1. 先查 `~/Documents/video-notes/<频道>/<video-id>/transcript.txt` 是否已有；没有则先跑抓取脚本（`--skip-existing` 保险）
 2. 用 `scripts/retrieve.py` 从 transcript 定位原文：
    ```bash
-   python <skill_dir>/scripts/retrieve.py <transcript.txt> "关键词"         # 关键词 ±上下文
-   python <skill_dir>/scripts/retrieve.py <transcript.txt> --at 3:20 --window 90  # 3:20 前后 90 秒
-   python <skill_dir>/scripts/retrieve.py <transcript.txt> --list           # 时间戳分布索引
+   python <skill_dir>/scripts/retrieve.py <transcript.txt> "关键词"           # 关键词 ±上下文(默认前后 1 行)
+   python <skill_dir>/scripts/retrieve.py <transcript.txt> "关键词" --ctx 3    # 自定义上下文行数
+   python <skill_dir>/scripts/retrieve.py <transcript.txt> --at 3:20          # 3:20 前后 30 秒(默认窗口)
+   python <skill_dir>/scripts/retrieve.py <transcript.txt> --at 3:20 --window 90  # 自定义窗口
+   python <skill_dir>/scripts/retrieve.py <transcript.txt> --list             # 时间戳分布索引
    ```
+   **中英跨语言检索**：英文视频字幕里没有中文字，中文关键词直接搜必然 0 命中。脚本内置常见 AI/技术中英同义映射（注意力→attention、大模型→large language model 等），直接命中失败时自动换英文词重试，并在结果头部标明"已用同义词 X 检索"。若仍无结果，脚本会提示改英文关键词，或先 `--list` 看时间戳分布再用 `--at` 定位。
 3. 把检索到的上下文片段交给 LLM 精读回答
 4. 回答要标注所依据的时间戳区间，可跳回原片核实
 
 ### 模式 D · 选题素材（笔记尾部，不写稿）
 
-每条模式 A 笔记的「📌 可写角度」区块产出 2-3 个公众号/小红书选题钩子：
-- 遵守用户标题公式（"我用AI做了X"）与禁区清单（禁"初体验/第一课/入门推荐/课程分享/我学了X"句式）
-- 差异化角度：强调用户自己的运营视角/真实验证，不搬运原视频内容
+每条模式 A 笔记的「📌 可写角度」区块产出 2-3 个可发布的选题钩子：
+- **钩子要具体可兑现**：写清"这条内容能回答什么问题、给出什么结果"，避免空泛口号式标题
+- **必须带自己的视角**：强调创作者的亲身验证、踩坑、对比与判断，不搬运原视频内容（防洗稿）
+- 如创作者有自备的标题公式/禁区清单/平台规范，按其规范产出；没有就用上面的通用写法
 - **不自动写稿**；用户说"写一篇"才另开对话按发布流程写
 
 ## 长视频 / 超长 transcript 处理
@@ -130,8 +145,10 @@ python <skill_dir>/scripts/fetch_video.py "<url>" --skip-existing
 
 ## 常见问题
 
-- 代理没开 → 报错提示开启 Clash/V2ray
+- 代理没开 → 脚本会先试直连，直连也不通才报错，提示开 Clash/V2ray 或加 `--direct`
 - 视频不可用/地区限制/年龄限制 → 透出具体错误，建议换视频或说明原因
 - 视频无字幕 → 明确告知无法提炼（当前版本不做本地 Whisper 转写）
-- 抓取慢 → 过代理 + 字幕下载通常需 10-60 秒，批量时串行提示耐心
+- 抓取慢 → 过代理 + 字幕下载通常需 10-60 秒，脚本会打印进度；批量时会给出总耗时预估
+- 中文关键词搜不到 → 正常现象（英文视频字幕无中文）；脚本会自动试同义词，也可改英文关键词或改用 `--at` 定位
+- 链接被拒 → 只接受 YouTube 域名（youtube.com / youtu.be）与合法 video_id，其它站点不支持
 

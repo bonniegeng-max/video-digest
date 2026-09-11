@@ -5,11 +5,16 @@ video-digest / fetch_video.py
 抓取 YouTube 视频元数据 + 字幕,解析为带时间戳的纯文本 transcript。
 
 用法:
-    python fetch_video.py <url1> [url2 url3 ...] [--out <目录>] [--langs en,zh] [--skip-existing]
+    python fetch_video.py <url1> [url2 url3 ...] [--out <目录>] [--langs en,zh] [--skip-existing] [--direct]
 
     # 单条:     python fetch_video.py https://www.youtube.com/watch?v=xxx
     # 批量:     python fetch_video.py url1 url2 url3     (代理只探测一次)
     # 复用存档: python fetch_video.py url --skip-existing (已有 transcript 则跳过)
+    # 直连:     python fetch_video.py url --direct       (海外网络/可直连环境,跳过代理)
+
+网络策略:
+    默认探测本地代理(Clash/V2ray 常见端口) → 探测不到则试直连 → 都不通才报错。
+    加 --direct 可跳过代理探测直接直连。
 
 输出:
     每个视频落在 <out>/<频道>/<video-id>/
@@ -113,6 +118,15 @@ def probe_proxy(proxy_url):
     try:
         req = urllib.request.Request(YOUTUBE_PROBE, method="HEAD")
         return opener.open(req, timeout=8).status < 400
+    except Exception:
+        return False
+
+
+def probe_direct():
+    """探测不走代理(直连)是否可达 YouTube。海外网络/企业出口可用时为 True。"""
+    try:
+        req = urllib.request.Request(YOUTUBE_PROBE, method="HEAD")
+        return urllib.request.urlopen(req, timeout=8).status < 400
     except Exception:
         return False
 
@@ -261,12 +275,15 @@ def fetch_one(url, proxy, py, root, langs, skip_existing):
     status: ok / skipped / no_subtitle / error
     """
     # ---- Step 1: 元数据 ----
-    dump_cmd = [py, "-m", "yt_dlp", "--dump-json", "--skip-download",
-                "--proxy", proxy, "--no-warnings", url]
+    print("   ⏳ 获取视频信息...", flush=True)
+    dump_cmd = [py, "-m", "yt_dlp", "--dump-json", "--skip-download", "--no-warnings"]
+    if proxy:
+        dump_cmd += ["--proxy", proxy]
+    dump_cmd.append(url)
     try:
         proc = subprocess.run(dump_cmd, capture_output=True, text=True, timeout=120)
     except subprocess.TimeoutExpired:
-        return (None, "error", "获取视频信息超时")
+        return (None, "error", "获取视频信息超时(网络慢或视频较大),可稍后重试")
 
     if proc.returncode != 0:
         err = (proc.stderr or proc.stdout or "")[-800:]
@@ -282,7 +299,9 @@ def fetch_one(url, proxy, py, root, langs, skip_existing):
     try:
         info = json.loads(proc.stdout)
     except json.JSONDecodeError:
-        return (None, "error", "解析元数据失败")
+        return (None, "error",
+                "这个链接不是可解析的视频页。请提供具体视频链接："
+                "youtube.com/watch?v=... / youtu.be/... / youtube.com/shorts/...")
 
     video_id = info.get("id") or ""
     if not isinstance(video_id, str) or not VIDEO_ID_RE.fullmatch(video_id):
@@ -317,8 +336,12 @@ def fetch_one(url, proxy, py, root, langs, skip_existing):
     lang_code, track_key, is_auto = chosen
 
     # ---- Step 3: 下载字幕(失败自动重试一次) ----
+    print("   ⏳ 下载字幕...", flush=True)
+
     def build_cmd():
-        cmd = [py, "-m", "yt_dlp", "--skip-download", "--proxy", proxy, "--no-warnings"]
+        cmd = [py, "-m", "yt_dlp", "--skip-download", "--no-warnings"]
+        if proxy:
+            cmd += ["--proxy", proxy]
         cmd += ["--write-auto-subs"] if is_auto else ["--write-subs"]
         cmd += ["--sub-langs", lang_code, "--sub-format", "vtt/best",
                 "-o", os.path.join(vdir, "%(id)s.%(ext)s"), url]
@@ -371,13 +394,32 @@ def main():
     ap.add_argument("--langs", default="en,zh", help="字幕语言偏好,默认 en,zh")
     ap.add_argument("--skip-existing", action="store_true",
                     help="已有非空 transcript 则跳过(模式 C 复用存档)")
+    ap.add_argument("--direct", action="store_true",
+                    help="直连 YouTube(不走代理);海外网络或可直连的环境用")
     args = ap.parse_args()
 
-    proxy = pick_proxy()
-    if not proxy:
-        print("ERROR: 未探测到可用代理,请确认 Clash/V2ray 已开启(常见端口 7897/7890/1087)。")
-        sys.exit(2)
-    print(f"PROXY: {sanitize_proxy(proxy)}")
+    # ---- 网络: --direct 显式直连 > 探测代理 > 回退探测直连 ----
+    if args.direct:
+        proxy = None
+        print("NET: 直连模式(--direct),不走代理")
+        # 预检:直连不通时提前告知,避免用户干等 yt-dlp 超时
+        if not probe_direct():
+            print("   ⚠ 直连预检未通过(可能被墙或需代理)。仍会尝试;若长时间无响应,去掉 --direct 改走代理", flush=True)
+    else:
+        proxy = pick_proxy()
+        if proxy:
+            print(f"PROXY: {sanitize_proxy(proxy)}")
+        else:
+            # 没代理: 试探直连是否可用(海外网络/企业出口常见),避免"明明能连却报错退出"
+            print("PROXY: 未探测到本地代理,正在测试直连 YouTube...", flush=True)
+            if probe_direct():
+                proxy = None
+                print("NET: 直连 YouTube 可用,自动走直连")
+            else:
+                print("ERROR: 未探测到可用代理,直连 YouTube 也不通。")
+                print("   → 国内网络: 请确认 Clash/V2ray 已开启(常见端口 7897/7890/1087)")
+                print("   → 可直连的环境: 加 --direct 参数跳过代理探测")
+                sys.exit(2)
 
     py = find_venv_python()
     if not py:
@@ -387,7 +429,11 @@ def main():
     langs = [l.strip().lower() for l in args.langs.split(",") if l.strip()]
     root = args.out or os.path.expanduser("~/Documents/video-notes")
 
-    print(f"待抓取 {len(args.urls)} 条视频...\n")
+    n = len(args.urls)
+    print(f"待抓取 {n} 条视频...")
+    if n > 1:
+        print(f"提示: 批量每条约 10-30 秒,预计共需 {n * 10 // 60}~{n * 30 // 60} 分多,请耐心等待")
+    print()
     results = []
     for i, url in enumerate(args.urls, 1):
         print(f"── [{i}/{len(args.urls)}] {url}")
@@ -399,7 +445,8 @@ def main():
             vid, status, message = fetch_one(url, proxy, py, root, langs, args.skip_existing)
             results.append((vid, status, message))
         except Exception as e:
-            results.append((None, "error", str(e)))
+            status, message = "error", f"未预期错误: {e}"
+            results.append((None, status, message))
         if status == "ok":
             print(f"   ✓ OK: {message}\n")
         elif status == "skipped":
