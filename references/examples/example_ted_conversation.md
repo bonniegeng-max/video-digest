@@ -1,5 +1,7 @@
 # The Science Behind Dramatically Better Conversations | Charles Duhigg | TED
 
+> 样张输出语言默认中文;实际使用时输出语言遵循用户指定,用户可要求英文或其他语言。
+
 - **频道**: TED ｜ **时长**: 11:48 ｜ **语言**: 英文手动字幕
 - **🔗 原链接**: https://www.youtube.com/watch?v=K_RSZC0s8a4
 - **提炼日期**: 2026-09-04

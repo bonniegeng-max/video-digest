@@ -86,8 +86,23 @@ def is_youtube_ref(url_or_id):
     return bool(VIDEO_ID_RE.fullmatch(s))
 
 
+def _is_trusted_interpreter(path):
+    """执行前校验候选解释器:必须属于当前用户,且 group/other 不可写(防篡改)。"""
+    try:
+        st = os.stat(path)
+    except OSError:
+        return False
+    if st.st_uid != os.geteuid():
+        return False
+    if st.st_mode & 0o022:
+        return False
+    return True
+
+
 def find_venv_python():
-    """定位装有 yt-dlp 的 python(优先当前解释器,其次托管 venv)。"""
+    """定位装有 yt-dlp 的 python(优先当前解释器,其次托管 venv)。
+    候选解释器执行前先做归属与权限校验(_is_trusted_interpreter),拒绝可疑路径。
+    """
     try:
         import yt_dlp  # noqa: F401
         return sys.executable
@@ -98,7 +113,7 @@ def find_venv_python():
         os.path.join(os.path.dirname(SCRIPT_DIR), ".venv", "bin", "python"),
     ]
     for c in candidates:
-        if os.path.exists(c):
+        if os.path.exists(c) and _is_trusted_interpreter(c):
             try:
                 r = subprocess.run([c, "-c", "import yt_dlp"], capture_output=True, timeout=15)
                 if r.returncode == 0:
@@ -270,15 +285,31 @@ def extract_chapters(info):
     return chapters
 
 
+def yt_dlp_proxy_args(proxy):
+    """构造 yt-dlp 的 --proxy 参数。
+    本地代理(Clash/V2ray)通常无凭据,只传 scheme://host:port,凭据零暴露;
+    带凭据的代理只能传完整 URL(受限于 yt-dlp 仅支持参数传代理),
+    此时打印提示告知进程参数对本机同用户可见。
+    注:实测 yt-dlp 不读取 HTTPS_PROXY 等环境变量代理,故不能用 env 方式。
+    """
+    if not proxy:
+        return []
+    if "@" in proxy:
+        print("   ⚠ 代理含凭据:将以完整 URL 传入 yt-dlp 参数(仅本机同用户进程可见)", flush=True)
+    return ["--proxy", proxy]
+
+
 def fetch_one(url, proxy, py, root, langs, skip_existing):
     """抓取单个视频,返回 (video_id, status, message)。
     status: ok / skipped / no_subtitle / error
     """
+    proxy_args = yt_dlp_proxy_args(proxy)
+
     # ---- Step 1: 元数据 ----
+    # subprocess 说明:固定解释器 + 固定 yt_dlp 模块 + 白名单参数,列表传参无 shell,无用户可控片段
     print("   ⏳ 获取视频信息...", flush=True)
     dump_cmd = [py, "-m", "yt_dlp", "--dump-json", "--skip-download", "--no-warnings"]
-    if proxy:
-        dump_cmd += ["--proxy", proxy]
+    dump_cmd += proxy_args
     dump_cmd.append(url)
     try:
         proc = subprocess.run(dump_cmd, capture_output=True, text=True, timeout=120)
@@ -339,9 +370,9 @@ def fetch_one(url, proxy, py, root, langs, skip_existing):
     print("   ⏳ 下载字幕...", flush=True)
 
     def build_cmd():
+        # 同上:固定解释器/模块/参数,仅 URL 与输出路径来自已校验输入,列表传参无 shell
         cmd = [py, "-m", "yt_dlp", "--skip-download", "--no-warnings"]
-        if proxy:
-            cmd += ["--proxy", proxy]
+        cmd += proxy_args
         cmd += ["--write-auto-subs"] if is_auto else ["--write-subs"]
         cmd += ["--sub-langs", lang_code, "--sub-format", "vtt/best",
                 "-o", os.path.join(vdir, "%(id)s.%(ext)s"), url]

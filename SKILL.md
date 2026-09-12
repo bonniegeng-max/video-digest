@@ -1,9 +1,9 @@
 ---
 name: video-digest
-version: 1.1.3
-description: 视频深读——把没时间看的 YouTube 视频提炼成中文结构化笔记：概述主要内容、按主题整理成文、区分🧱事实与💭观点、附原链接+时间戳可跳回，支持追问深挖与公众号/小红书选题素材。仅在用户提供 YouTube 链接/视频 ID 或明确说「视频深读 <链接>」时使用。抓 YouTube 字幕→中文笔记，落盘可复用。英文 AI/科技/访谈/TED/讲座效果最佳。需要 python3 + yt-dlp + 网络可达 YouTube（本机代理或可直连）。
+version: 1.1.4
+description: 视频深读——把没时间看的 YouTube 视频提炼成中文结构化笔记：概述主要内容、按主题整理成文、区分🧱事实与💭观点、附原链接+时间戳可跳回，支持追问深挖与内容平台选题素材。仅在用户提供 YouTube 链接/视频 ID 或明确说「视频深读 <链接>」时使用。抓 YouTube 字幕→中文笔记（默认中文，用户可指定其他输出语言），落盘可复用。笔记生成由执行本 skill 的 AI 按模板完成，脚本只负责抓取。英文 AI/科技/访谈/TED/讲座效果最佳。需要 python3 + yt-dlp + 网络可达 YouTube（本机代理或可直连）。
 agent_created: true
-metadata: { "openclaw": { "requires": { "bins": ["python3"] }, "install": [ { "kind": "uv", "package": "yt-dlp", "bins": ["yt-dlp"] } ] } }
+metadata: { "openclaw": { "requires": { "bins": ["python3"], "env": ["HTTPS_PROXY"] }, "install": [ { "kind": "uv", "package": "yt-dlp", "bins": ["yt-dlp"] } ] } }
 ---
 
 # 视频深读 (video-digest)
@@ -31,11 +31,17 @@ metadata: { "openclaw": { "requires": { "bins": ["python3"] }, "install": [ { "k
 
 本 skill 只用以下能力，且用途单一：**抓 YouTube 字幕 → 落盘中文笔记**。
 
-- **网络访问**：仅限抓取 YouTube 元数据/字幕（youtube.com / youtu.be）；优先走用户本机代理（127.0.0.1 常见端口），不可用时直连
+- **网络访问**：仅限抓取 YouTube 元数据/字幕（youtube.com / youtu.be）；优先走用户本机代理（127.0.0.1 常见端口），不可用时直连。**无凭据的本地代理（最常见）命令行里只出现 host:port，凭据零暴露**；带凭据的代理会打印明确提示（受限于 yt-dlp 仅支持参数传代理）。代理 URL 打印/落盘前一律脱敏（剥 userinfo）
 - **shell 执行**：仅运行本 skill 自带的 `scripts/fetch_video.py`（内部调 yt-dlp）与 `scripts/retrieve.py`（检索），不执行任意其它命令
-- **文件读写**：仅在笔记输出目录写文件（默认 `~/Documents/video-notes/<频道>/<video-id>/`，可用 `--out` 指定）；只读该目录内已生成的 transcript 供追问
-- **环境变量**：只读 `HTTPS_PROXY`/`https_proxy` 作为代理候选；代理 URL 打印/落盘前会**脱敏**（剥掉 userinfo，凭据绝不落盘）
+- **文件读写**：仅在笔记输出目录写文件（默认 `~/Documents/video-notes/<频道>/<video-id>/`，可用 `--out` 指定）；`retrieve.py` 只读取用户在会话中明确指定的 transcript 路径（默认约定在笔记输出目录内），越界路径会打印透明提示
+- **环境变量**：只读 `HTTPS_PROXY`/`https_proxy` 作为代理候选；代理 URL 打印/落盘前会**脱敏**（剥掉 userinfo，凭据绝不落盘）；无凭据代理的命令行参数里不含任何敏感值
 - **输入校验**：只接受 YouTube 链接或合法 video_id；非 YouTube 域名/非法 ID 直接拒绝，不交给 yt-dlp，不参与路径拼接
+
+## 人机分工（架构说明）
+
+「抓字幕 → 中文笔记」由两部分协作完成，这是设计而非缺失：
+- **代码（scripts/）**：只负责抓取——校验输入、探测网络、调用 yt-dlp 获取元数据与字幕、解析为带时间戳的 transcript.txt。不含文本生成逻辑
+- **AI（执行本 skill 的智能体）**：读取 transcript 与 `references/note_template.md`，完成结构化笔记、事实/观点分层、追问检索作答、选题角度——笔记能力以提示词规范实现，落在 SKILL.md 与模板文件里
 
 ## 依赖与前置
 
@@ -132,7 +138,8 @@ python <skill_dir>/scripts/fetch_video.py "<url>" --direct
 
 ## 输出语言与字幕
 
-- 输入为英文视频 → 笔记全中文；金句保留英文原文 + 中文翻译
+- **默认输出中文是便于中文用户快速消费的选择，非强制**：用户在请求里指定其他语言（如"用英文总结"）时，按用户指定的语言输出
+- 输入为英文视频 → 笔记默认中文；金句保留英文原文 + 中文翻译
 - 视频是中文的（如中文访谈）→ 笔记直接中文，金句不必翻译
 - 字幕语言选择：脚本按 `--langs en,zh` 偏好自动挑（同语言下手动字幕优先于自动字幕）；如该视频只有别的语言字幕，脚本会抓取并如实标注，主 Agent 判断是否值得提炼
 

@@ -13,6 +13,7 @@ video-digest / retrieve.py
 
 transcript 行格式: [MM:SS] 文本 或 [H:MM:SS] 文本
 退出码: 0 有结果 | 1 无结果/文件问题 | 2 参数错误
+界面提示文案默认中文(作者本地化选择);检索结果保持字幕原语言,不受影响。
 
 中文检索说明:
     英文视频的字幕里没有中文字,中文关键词直接搜必然 0 命中。
@@ -20,6 +21,7 @@ transcript 行格式: [MM:SS] 文本 或 [H:MM:SS] 文本
     直接命中失败时会自动用对应英文词重试,并提示用的是哪个词。
 """
 import argparse
+import os
 import re
 import sys
 
@@ -197,6 +199,12 @@ def main():
     if modes != 1:
         print("ERROR: 关键词 / --at / --list 三选一。")
         sys.exit(2)
+
+    # 读取范围透明提示:默认约定只读 ~/Documents/video-notes/ 下的存档,越界要出声
+    real = os.path.realpath(args.transcript)
+    default_root = os.path.realpath(os.path.expanduser("~/Documents/video-notes"))
+    if not real.startswith(default_root + os.sep):
+        print(f"⚠ 正在读取默认存档目录之外的路径: {real}")
 
     try:
         entries = parse_lines(args.transcript)

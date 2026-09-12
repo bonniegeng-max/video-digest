@@ -1,5 +1,7 @@
 # How the vLLM inference engine works?
 
+> 样张输出语言默认中文;实际使用时输出语言遵循用户指定,用户可要求英文或其他语言。
+
 - **频道**: KodeKloud ｜ **时长**: 02:54 ｜ **语言**: 英文自动字幕
 - **🔗 原链接**: https://www.youtube.com/watch?v=5Y_JM6C9xOA
 - **提炼日期**: 2026-09-04
