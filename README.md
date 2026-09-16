@@ -1,4 +1,4 @@
-# Video Deep Reader 2.0.2
+# Video Deep Reader 2.0.3
 
 Turn a YouTube link, video ID, or supplied transcript into timestamped notes that help you decide, understand, or verify.
 
@@ -18,9 +18,9 @@ A bare YouTube URL is enough when the surrounding message clearly asks to proces
 Doctor is read-only and does not install anything:
 
 ```bash
-python3 scripts/doctor.py --ui-lang en
-python3 scripts/doctor.py --network --ui-lang en
-python3 scripts/doctor.py --network --proxy-port 7890 --ui-lang zh
+python3 scripts/fetch_video.py --doctor
+python3 scripts/fetch_video.py --doctor --network
+python3 scripts/fetch_video.py --doctor --network --proxy-port 7890 --ui-lang zh
 ```
 
 If the pinned dependency is missing:
@@ -57,6 +57,7 @@ Retrieval accepts a video ID rather than an arbitrary local path:
 python3 scripts/retrieve.py <video-id> "keyword" --ui-lang en
 python3 scripts/retrieve.py <video-id> --at 3:20 --ui-lang en
 python3 scripts/retrieve.py <video-id> --list --ui-lang en
+python3 scripts/retrieve.py <video-id> "注意力" --synonyms zh-en --ui-lang zh
 ```
 
 ## Transcript fallback
@@ -65,7 +66,7 @@ If a video has no accessible subtitles, paste or upload a transcript. Video Deep
 
 ## Language
 
-Notes follow the language of the current request. Script callers must explicitly pass `--ui-lang en` or `--ui-lang zh`.
+Notes follow the language of the current request. Scripts accept `--ui-lang <language>` and otherwise follow the local interface language with English fallback. Chinese-to-English technical query expansion runs only with `--synonyms zh-en`.
 
 ## Safety
 

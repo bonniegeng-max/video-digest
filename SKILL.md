@@ -1,16 +1,12 @@
 ---
 name: video-digest
-version: 2.0.2
+version: 2.0.3
 description: Check the pinned transcript dependency and optionally test YouTube connectivity, fetch public captions into a private per-user cache, retrieve excerpts by video ID, and turn captions or a supplied transcript into timestamped Quick, Deep, or Research notes.
 allowed-tools: RunCommand, Bash, Read, Write, WebSearch, WebFetch
 metadata:
   openclaw:
     requires:
       bins: [python3]
-    install:
-      - kind: uv
-        package: "yt-dlp==2026.8.19"
-        bins: [yt-dlp]
 ---
 
 # Video Deep Reader
@@ -27,7 +23,7 @@ The bundled fetch helper retrieves public metadata and subtitles; Research mode 
 
 Bundled components are deliberately separate:
 
-- `doctor.py` checks the local dependency and optional network readiness.
+- `fetch_video.py --doctor` checks the local dependency and optional network readiness.
 - `fetch_video.py` retrieves public metadata and subtitles into the declared temporary cache.
 - `retrieve.py` returns timestamped excerpts from that cache by validated video ID.
 - The agent applies this file and `references/output-modes.md` to create the semantic notes.
@@ -55,7 +51,7 @@ Do not invoke for:
 
 Respond in the language of the user's current request. If unclear, ask once. Preserve quotations in their original language and add a translation only when useful.
 
-Every bundled script requires an explicit `--ui-lang en` or `--ui-lang zh` matching the current request.
+Bundled scripts accept `--ui-lang <language>` and otherwise follow the local interface language, with English as a fallback.
 
 ## Select the Mode
 
@@ -73,7 +69,7 @@ If the requested depth is ambiguous, use Quick as the content mode. Still follow
 Run the read-only doctor before the first URL fetch in a session:
 
 ```bash
-python3 <skill_dir>/scripts/doctor.py --ui-lang zh
+python3 <skill_dir>/scripts/fetch_video.py --doctor --ui-lang zh
 ```
 
 Add `--network` only when a network diagnosis is needed. If a local proxy should be tested, pass its loopback port explicitly with `--proxy-port`; Doctor does not scan local ports. Doctor never installs packages or changes configuration.
@@ -186,6 +182,12 @@ python3 <skill_dir>/scripts/retrieve.py <video-id> --list --ui-lang zh
 ```
 
 It reads only transcripts created under the managed temporary cache. Quote the relevant timestamp range in the answer.
+
+Chinese-to-English technical query expansion is optional and must be enabled explicitly:
+
+```bash
+python3 <skill_dir>/scripts/retrieve.py <video-id> "注意力" --synonyms zh-en --ui-lang zh
+```
 
 ## Content Integrity
 

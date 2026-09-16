@@ -3,11 +3,13 @@
 
 import argparse
 import json
+import locale
 import os
 import re
 import stat
 import sys
 import tempfile
+import urllib.request
 from pathlib import Path
 from urllib.parse import urlsplit
 
@@ -47,14 +49,50 @@ def load_yt_dlp():
     try:
         import yt_dlp
     except ImportError as exc:
-        raise RuntimeError("yt-dlp is missing; run scripts/doctor.py") from exc
+        raise RuntimeError("yt-dlp is missing; run fetch_video.py --doctor") from exc
     actual = yt_dlp.version.__version__
     normalize = lambda value: tuple(int(part) for part in value.split("."))
     if normalize(actual) != normalize(PINNED_VERSION):
         raise RuntimeError(
-            f"yt-dlp {PINNED_VERSION} is required; found {actual}. Run scripts/doctor.py"
+            f"yt-dlp {PINNED_VERSION} is required; found {actual}. "
+            "Run fetch_video.py --doctor"
         )
     return yt_dlp
+
+
+def dependency_status():
+    try:
+        import yt_dlp
+    except ImportError:
+        return {"ok": False, "installed": None, "required": PINNED_VERSION}
+    installed = yt_dlp.version.__version__
+    normalize = lambda value: tuple(int(part) for part in value.split("."))
+    return {
+        "ok": normalize(installed) == normalize(PINNED_VERSION),
+        "installed": installed,
+        "required": PINNED_VERSION,
+    }
+
+
+def network_status(proxy_port=None):
+    handlers = []
+    if proxy_port:
+        proxy = f"http://127.0.0.1:{proxy_port}"
+        handlers.append(urllib.request.ProxyHandler({"http": proxy, "https": proxy}))
+    opener = urllib.request.build_opener(*handlers)
+    try:
+        request = urllib.request.Request("https://www.youtube.com", method="HEAD")
+        status = opener.open(request, timeout=6).status
+        return {"checked": True, "ok": status < 400, "status": status}
+    except Exception as exc:
+        return {"checked": True, "ok": False, "error": type(exc).__name__}
+
+
+def interface_language(requested):
+    if requested and requested != "auto":
+        return "zh" if requested.lower().startswith("zh") else "en"
+    current = locale.getlocale()[0] or ""
+    return "zh" if current.lower().startswith("zh") else "en"
 
 
 def format_ts(seconds):
@@ -303,16 +341,56 @@ def fetch_one(reference, languages, proxy_port, yt_dlp, root=CACHE_ROOT):
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Fetch YouTube subtitles to a restricted temporary cache."
+        description="Check readiness or fetch YouTube subtitles to a private cache."
     )
-    parser.add_argument("references", nargs="+", help="YouTube URLs or video IDs")
+    parser.add_argument("references", nargs="*", help="YouTube URLs or video IDs")
     parser.add_argument("--langs", default="en,zh", help="Subtitle preference, e.g. en,zh")
     parser.add_argument("--proxy-port", type=int, choices=range(1, 65536))
-    parser.add_argument("--ui-lang", choices=("en", "zh"), required=True)
+    parser.add_argument("--ui-lang", default="auto", help="UI language or auto")
+    parser.add_argument("--doctor", action="store_true", help="Run a read-only dependency check")
+    parser.add_argument("--network", action="store_true", help="With --doctor, test YouTube access")
     args = parser.parse_args()
+    ui_lang = interface_language(args.ui_lang)
 
+    if args.doctor:
+        if args.references:
+            parser.error("--doctor does not accept video references")
+        result = {
+            "python": {
+                "ok": sys.version_info >= (3, 9),
+                "version": ".".join(map(str, sys.version_info[:3])),
+                "required": ">=3.9",
+            },
+            "yt_dlp": dependency_status(),
+            "network": {"checked": False},
+        }
+        if args.network:
+            notice = (
+                "将向 YouTube 发送一次有时限的连通性检查。"
+                if ui_lang == "zh"
+                else "Sending one bounded connectivity check to YouTube."
+            )
+            print(notice, file=sys.stderr)
+            result["network"] = network_status(args.proxy_port)
+        result["ready"] = (
+            result["python"]["ok"]
+            and result["yt_dlp"]["ok"]
+            and (not args.network or result["network"]["ok"])
+        )
+        if not result["yt_dlp"]["ok"]:
+            result["repair"] = (
+                "python3 -m venv .venv && "
+                ".venv/bin/python -m pip install --require-hashes -r requirements.lock"
+            )
+        print(json.dumps(result, ensure_ascii=False, indent=2))
+        return 0 if result["ready"] else 2
+
+    if not args.references:
+        parser.error("provide at least one YouTube reference or use --doctor")
+    if args.network:
+        parser.error("--network is only valid with --doctor")
     if not all(is_youtube_ref(item) for item in args.references):
-        text = "仅接受 YouTube 链接或视频 ID。" if args.ui_lang == "zh" else (
+        text = "仅接受 YouTube 链接或视频 ID。" if ui_lang == "zh" else (
             "Only YouTube URLs or video IDs are accepted."
         )
         print(text, file=sys.stderr)
@@ -325,7 +403,7 @@ def main():
 
     notice = (
         "将向 YouTube 发送所提供的视频引用并读取公开元数据和字幕。"
-        if args.ui_lang == "zh"
+        if ui_lang == "zh"
         else "Contacting YouTube with the supplied video reference to retrieve public metadata and captions."
     )
     print(notice, file=sys.stderr)

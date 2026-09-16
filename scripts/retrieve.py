@@ -2,6 +2,7 @@
 """Retrieve timestamped excerpts from the managed temporary cache."""
 
 import argparse
+import locale
 import os
 import re
 import stat
@@ -111,11 +112,11 @@ def expand_keyword(keyword):
     return ()
 
 
-def keyword_matches(entries, keyword):
+def keyword_matches(entries, keyword, synonym_mode="none"):
     lowered = keyword.lower()
     indexes = [index for index, item in enumerate(entries) if lowered in item[2].lower()]
     used = keyword
-    if not indexes:
+    if not indexes and synonym_mode == "zh-en":
         for alternative in expand_keyword(keyword):
             indexes = [
                 index
@@ -128,6 +129,13 @@ def keyword_matches(entries, keyword):
     return indexes, used
 
 
+def interface_language(requested):
+    if requested and requested != "auto":
+        return "zh" if requested.lower().startswith("zh") else "en"
+    current = locale.getlocale()[0] or ""
+    return "zh" if current.lower().startswith("zh") else "en"
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Search one managed Video Deep Reader transcript."
@@ -138,8 +146,15 @@ def main():
     parser.add_argument("--window", type=int, default=30)
     parser.add_argument("--list", action="store_true")
     parser.add_argument("--context", type=int, default=1)
-    parser.add_argument("--ui-lang", choices=("en", "zh"), required=True)
+    parser.add_argument(
+        "--synonyms",
+        choices=("none", "zh-en"),
+        default="none",
+        help="Optional query expansion; zh-en maps selected Chinese technical terms",
+    )
+    parser.add_argument("--ui-lang", default="auto", help="UI language or auto")
     args = parser.parse_args()
+    ui_lang = interface_language(args.ui_lang)
 
     if sum((bool(args.keyword), bool(args.at), bool(args.list))) != 1:
         print("Choose exactly one of keyword, --at, or --list.", file=sys.stderr)
@@ -169,7 +184,7 @@ def main():
             if center - args.window <= item[0] <= center + args.window
         ]
     else:
-        indexes, used = keyword_matches(entries, args.keyword)
+        indexes, used = keyword_matches(entries, args.keyword, args.synonyms)
         note = used if used != args.keyword else ""
         seen = set()
         for index in indexes:
@@ -182,7 +197,7 @@ def main():
                     seen.add(cursor)
 
     if not selected:
-        text = "没有命中。" if args.ui_lang == "zh" else "No matches."
+        text = "没有命中。" if ui_lang == "zh" else "No matches."
         print(text, file=sys.stderr)
         return 1
     if note:

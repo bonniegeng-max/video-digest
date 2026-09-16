@@ -1,5 +1,12 @@
 # Changelog
 
+## 2.0.3 — 2026-09-17
+
+- Merged the read-only Doctor into `fetch_video.py --doctor` so the runtime helper contains both readiness and caption-fetching behavior.
+- Removed automatic package-install metadata that unnecessarily exposed the `yt-dlp` executable; installation remains an explicit, hashed user-approved step.
+- Changed CLI language handling to local-language detection with arbitrary language input and English fallback.
+- Made Chinese-to-English technical synonym expansion explicitly opt-in with `--synonyms zh-en`.
+
 ## 2.0.2 — 2026-09-17
 
 - Replaced the shared predictable cache with a current-user-specific cache root.
