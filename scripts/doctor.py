@@ -33,7 +33,7 @@ def open_proxy_ports():
     found = []
     for port in PROXY_PORTS:
         try:
-            with socket.create_connection(("127.0.0.1", port), timeout=0.2):
+            with socket.create_connection(("127.0.0.1", port), timeout=1):
                 found.append(port)
         except OSError:
             pass

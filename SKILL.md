@@ -1,8 +1,8 @@
 ---
 name: video-digest
-version: 2.0.0
-description: Turn a YouTube link, video ID, or supplied transcript into timestamped Quick, Deep, or Research notes. Use for video summaries, argument maps, claim checking, follow-up questions, or deciding whether a video is worth watching.
-allowed-tools: RunCommand, Read, WebSearch, WebFetch
+version: 2.0.1
+description: Check the pinned transcript environment, fetch public YouTube captions into a restricted temporary cache, retrieve excerpts by video ID, and turn those captions or a supplied transcript into timestamped Quick, Deep, or Research notes.
+allowed-tools: RunCommand, Read, Write, WebSearch, WebFetch
 metadata:
   openclaw:
     requires:
@@ -23,7 +23,14 @@ Turn a YouTube video or supplied transcript into a useful reading artifact:
 - **Deep**: understand the argument, evidence, structure, and important timestamps.
 - **Research**: verify selected material claims against public primary sources.
 
-The fetch script only retrieves public metadata and subtitles. The agent creates the notes.
+The bundled fetch helper retrieves public metadata and subtitles; Research mode may additionally verify selected claims with public sources. The agent creates the semantic notes from these inputs.
+
+Bundled components are deliberately separate:
+
+- `doctor.py` checks the local dependency and optional network readiness.
+- `fetch_video.py` retrieves public metadata and subtitles into the declared temporary cache.
+- `retrieve.py` returns timestamped excerpts from that cache by validated video ID.
+- The agent applies this file and `references/output-modes.md` to create the semantic notes.
 
 ## When to Use
 
@@ -59,7 +66,7 @@ Pass `--ui-lang zh` to bundled scripts for Chinese CLI messages; otherwise use t
 | “核验”, “查证”, “research”, “是真的吗” | Research | Deep notes plus selected claim verification |
 | Two or more links | Batch Quick | One Quick card per video |
 
-If the request is ambiguous, start with Quick. Offer Deep or Research after delivering useful content; do not ask before starting.
+If the requested depth is ambiguous, use Quick as the content mode. Still follow host confirmation requirements for package installation, file creation, and every other state-changing action.
 
 ## Step 1: Check the Environment
 

@@ -1,5 +1,13 @@
 # Changelog
 
+## 2.0.1 — 2026-09-17
+
+- Declared the Doctor, temporary cache writes, transcript retrieval, and agent note-generation layers in the top-level manifest description.
+- Added explicit temporary-write scope to allowed tools.
+- Clarified the boundary between caption fetching and Research-mode web verification.
+- Replaced ambiguous autonomy wording with host confirmation requirements for every state-changing action.
+- Increased fixed localhost port-probe timeouts to avoid a scanner false positive.
+
 ## 2.0.0 — 2026-09-16
 
 - Repositioned the skill as `Video Deep Reader`.

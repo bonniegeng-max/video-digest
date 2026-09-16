@@ -1,4 +1,4 @@
-# Video Deep Reader
+# Video Deep Reader 2.0.1
 
 Turn a YouTube link, video ID, or supplied transcript into timestamped notes that help you decide, understand, or verify.
 
