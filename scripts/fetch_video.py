@@ -3,14 +3,16 @@
 
 import argparse
 import json
+import os
 import re
+import stat
 import sys
 import tempfile
 from pathlib import Path
 from urllib.parse import urlsplit
 
 PINNED_VERSION = "2026.8.19"
-CACHE_ROOT = Path(tempfile.gettempdir()) / "video-deep-reader"
+CACHE_ROOT = Path(tempfile.gettempdir()) / f"video-deep-reader-{os.geteuid()}"
 VIDEO_ID = re.compile(r"^[A-Za-z0-9_-]{6,40}$")
 YOUTUBE_HOSTS = ("youtube.com", "youtu.be", "youtube-nocookie.com")
 
@@ -145,20 +147,64 @@ def pick_subtitle(info, preferences):
     return code, automatic, url
 
 
+def secure_directory(path):
+    """Create or validate one user-owned, non-symlink 0700 directory."""
+    try:
+        path.mkdir(mode=0o700)
+    except FileExistsError:
+        pass
+    info = path.lstat()
+    if stat.S_ISLNK(info.st_mode) or not stat.S_ISDIR(info.st_mode):
+        raise RuntimeError("managed cache path is not a real directory")
+    if info.st_uid != os.geteuid():
+        raise RuntimeError("managed cache path has an unexpected owner")
+    if stat.S_IMODE(info.st_mode) != 0o700:
+        raise RuntimeError("managed cache directory permissions must be 0700")
+
+
 def managed_dir(channel, video_id, root=CACHE_ROOT):
-    root.mkdir(mode=0o700, parents=True, exist_ok=True)
-    target = root / safe_name(channel) / video_id
-    if target.exists() and target.is_symlink():
-        raise RuntimeError("managed cache path is a symlink")
-    target.mkdir(mode=0o700, parents=True, exist_ok=True)
+    root_parent = root.parent.resolve()
+    if root.resolve(strict=False).parent != root_parent:
+        raise RuntimeError("managed cache root is invalid")
+    secure_directory(root)
+    channel_dir = root / safe_name(channel)
+    secure_directory(channel_dir)
+    target = channel_dir / video_id
+    secure_directory(target)
     if root.resolve() not in target.resolve().parents:
         raise RuntimeError("managed cache boundary violation")
     return target
 
 
 def write_private(path, content):
-    path.write_text(content, encoding="utf-8")
-    path.chmod(0o600)
+    """Atomically replace one regular user-owned cache file without following links."""
+    parent = path.parent
+    secure_directory(parent)
+    if path.exists() or path.is_symlink():
+        info = path.lstat()
+        if stat.S_ISLNK(info.st_mode) or not stat.S_ISREG(info.st_mode):
+            raise RuntimeError("cache output path is not a regular file")
+        if info.st_uid != os.geteuid():
+            raise RuntimeError("cache output file has an unexpected owner")
+
+    descriptor, temporary = tempfile.mkstemp(prefix=".write-", dir=parent)
+    temporary_path = Path(temporary)
+    try:
+        os.fchmod(descriptor, 0o600)
+        info = os.fstat(descriptor)
+        if not stat.S_ISREG(info.st_mode) or info.st_uid != os.geteuid():
+            raise RuntimeError("secure cache file validation failed")
+        with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
+            descriptor = -1
+            stream.write(content)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temporary_path, path)
+    finally:
+        if descriptor >= 0:
+            os.close(descriptor)
+        if temporary_path.exists():
+            temporary_path.unlink()
 
 
 def safe_error(error):
@@ -262,7 +308,7 @@ def main():
     parser.add_argument("references", nargs="+", help="YouTube URLs or video IDs")
     parser.add_argument("--langs", default="en,zh", help="Subtitle preference, e.g. en,zh")
     parser.add_argument("--proxy-port", type=int, choices=range(1, 65536))
-    parser.add_argument("--ui-lang", choices=("en", "zh"), default="en")
+    parser.add_argument("--ui-lang", choices=("en", "zh"), required=True)
     args = parser.parse_args()
 
     if not all(is_youtube_ref(item) for item in args.references):
@@ -277,6 +323,12 @@ def main():
         print(str(exc), file=sys.stderr)
         return 2
 
+    notice = (
+        "将向 YouTube 发送所提供的视频引用并读取公开元数据和字幕。"
+        if args.ui_lang == "zh"
+        else "Contacting YouTube with the supplied video reference to retrieve public metadata and captions."
+    )
+    print(notice, file=sys.stderr)
     languages = [item.strip().lower() for item in args.langs.split(",") if item.strip()]
     results = []
     for reference in args.references:

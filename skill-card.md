@@ -38,4 +38,4 @@ The skill also works from a user-supplied transcript without YouTube access or `
 
 ## Version
 
-2.0.1
+2.0.2

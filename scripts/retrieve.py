@@ -2,12 +2,14 @@
 """Retrieve timestamped excerpts from the managed temporary cache."""
 
 import argparse
+import os
 import re
+import stat
 import sys
 import tempfile
 from pathlib import Path
 
-CACHE_ROOT = Path(tempfile.gettempdir()) / "video-deep-reader"
+CACHE_ROOT = Path(tempfile.gettempdir()) / f"video-deep-reader-{os.geteuid()}"
 VIDEO_ID = re.compile(r"^[A-Za-z0-9_-]{6,40}$")
 STAMP = re.compile(r"^\[(\d{1,2}:\d{2}(?::\d{2})?)\]\s*(.+)$")
 SYNONYMS = {
@@ -42,11 +44,42 @@ def ts_to_seconds(value):
 def find_transcript(video_id, root=CACHE_ROOT):
     if not VIDEO_ID.fullmatch(video_id):
         raise ValueError("invalid video ID")
-    root.mkdir(mode=0o700, parents=True, exist_ok=True)
-    matches = list(root.glob(f"*/{video_id}/transcript.txt"))
+    if not root.exists():
+        raise FileNotFoundError("managed cache does not exist")
+    root_info = root.lstat()
+    if (
+        stat.S_ISLNK(root_info.st_mode)
+        or not stat.S_ISDIR(root_info.st_mode)
+        or root_info.st_uid != os.geteuid()
+        or stat.S_IMODE(root_info.st_mode) != 0o700
+    ):
+        raise ValueError("managed cache root failed ownership or permission checks")
+
     safe = []
-    for path in matches:
-        if path.is_symlink():
+    for channel in root.iterdir():
+        channel_info = channel.lstat()
+        if (
+            stat.S_ISLNK(channel_info.st_mode)
+            or not stat.S_ISDIR(channel_info.st_mode)
+            or channel_info.st_uid != os.geteuid()
+            or stat.S_IMODE(channel_info.st_mode) != 0o700
+        ):
+            continue
+        video_dir = channel / video_id
+        if not video_dir.exists() or video_dir.is_symlink():
+            continue
+        video_info = video_dir.lstat()
+        if (
+            not stat.S_ISDIR(video_info.st_mode)
+            or video_info.st_uid != os.geteuid()
+            or stat.S_IMODE(video_info.st_mode) != 0o700
+        ):
+            continue
+        path = video_dir / "transcript.txt"
+        if not path.exists() or path.is_symlink():
+            continue
+        file_info = path.lstat()
+        if not stat.S_ISREG(file_info.st_mode) or file_info.st_uid != os.geteuid():
             continue
         resolved = path.resolve()
         if root.resolve() in resolved.parents:
@@ -105,7 +138,7 @@ def main():
     parser.add_argument("--window", type=int, default=30)
     parser.add_argument("--list", action="store_true")
     parser.add_argument("--context", type=int, default=1)
-    parser.add_argument("--ui-lang", choices=("en", "zh"), default="en")
+    parser.add_argument("--ui-lang", choices=("en", "zh"), required=True)
     args = parser.parse_args()
 
     if sum((bool(args.keyword), bool(args.at), bool(args.list))) != 1:

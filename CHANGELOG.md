@@ -1,5 +1,15 @@
 # Changelog
 
+## 2.0.2 — 2026-09-17
+
+- Replaced the shared predictable cache with a current-user-specific cache root.
+- Added owner, type, and `0700` permission validation for every cache directory.
+- Added atomic `0600` writes and rejected symbolic links at leaf output paths.
+- Tightened transcript retrieval to the same ownership and permission checks.
+- Removed automatic localhost proxy-port scanning from Doctor.
+- Required explicit CLI language selection and added a visible network disclosure.
+- Narrowed bare-link activation with clear non-trigger examples.
+
 ## 2.0.1 — 2026-09-17
 
 - Declared the Doctor, temporary cache writes, transcript retrieval, and agent note-generation layers in the top-level manifest description.

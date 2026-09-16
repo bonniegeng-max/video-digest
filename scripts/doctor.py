@@ -3,12 +3,10 @@
 
 import argparse
 import json
-import socket
 import sys
 import urllib.request
 
 PINNED_VERSION = "2026.8.19"
-PROXY_PORTS = (7897, 7890, 1087, 10809)
 REPAIR = (
     "python3 -m venv .venv && "
     ".venv/bin/python -m pip install --require-hashes -r requirements.lock"
@@ -29,17 +27,6 @@ def yt_dlp_status():
     }
 
 
-def open_proxy_ports():
-    found = []
-    for port in PROXY_PORTS:
-        try:
-            with socket.create_connection(("127.0.0.1", port), timeout=1):
-                found.append(port)
-        except OSError:
-            pass
-    return found
-
-
 def network_status(proxy_port=None):
     handlers = []
     if proxy_port:
@@ -58,7 +45,7 @@ def main():
     parser = argparse.ArgumentParser(description="Read-only Video Deep Reader check.")
     parser.add_argument("--network", action="store_true", help="Also test YouTube access")
     parser.add_argument("--proxy-port", type=int, choices=range(1, 65536))
-    parser.add_argument("--ui-lang", choices=("en", "zh"), default="en")
+    parser.add_argument("--ui-lang", choices=("en", "zh"), required=True)
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args()
 
@@ -69,10 +56,15 @@ def main():
             "required": ">=3.9",
         },
         "yt_dlp": yt_dlp_status(),
-        "local_proxy_ports": open_proxy_ports(),
         "network": {"checked": False},
     }
     if args.network:
+        notice = (
+            "将向 YouTube 发送一次有时限的连通性检查。"
+            if args.ui_lang == "zh"
+            else "Sending one bounded connectivity check to YouTube."
+        )
+        print(notice, file=sys.stderr)
         result["network"] = network_status(args.proxy_port)
     result["ready"] = (
         result["python"]["ok"]

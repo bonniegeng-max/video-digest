@@ -1,8 +1,8 @@
 ---
 name: video-digest
-version: 2.0.1
-description: Check the pinned transcript environment, fetch public YouTube captions into a restricted temporary cache, retrieve excerpts by video ID, and turn those captions or a supplied transcript into timestamped Quick, Deep, or Research notes.
-allowed-tools: RunCommand, Read, Write, WebSearch, WebFetch
+version: 2.0.2
+description: Check the pinned transcript dependency and optionally test YouTube connectivity, fetch public captions into a private per-user cache, retrieve excerpts by video ID, and turn captions or a supplied transcript into timestamped Quick, Deep, or Research notes.
+allowed-tools: RunCommand, Bash, Read, Write, WebSearch, WebFetch
 metadata:
   openclaw:
     requires:
@@ -42,7 +42,7 @@ Invoke when the user:
 - wants to compare several videos or decide which one deserves deeper attention;
 - asks to verify important claims made in a video.
 
-A bare YouTube URL is enough to start. Do not require the phrase “视频深读.”
+A bare YouTube URL is enough only when the message is clearly asking the assistant to process that video. Do not activate when a link is merely cited, shared as a reference, requested for playback or download, or included as one source inside an unrelated task.
 
 Do not invoke for:
 
@@ -55,7 +55,7 @@ Do not invoke for:
 
 Respond in the language of the user's current request. If unclear, ask once. Preserve quotations in their original language and add a translation only when useful.
 
-Pass `--ui-lang zh` to bundled scripts for Chinese CLI messages; otherwise use the English default.
+Every bundled script requires an explicit `--ui-lang en` or `--ui-lang zh` matching the current request.
 
 ## Select the Mode
 
@@ -76,7 +76,7 @@ Run the read-only doctor before the first URL fetch in a session:
 python3 <skill_dir>/scripts/doctor.py --ui-lang zh
 ```
 
-Add `--network` only when a network diagnosis is needed. Doctor never installs packages or changes configuration.
+Add `--network` only when a network diagnosis is needed. If a local proxy should be tested, pass its loopback port explicitly with `--proxy-port`; Doctor does not scan local ports. Doctor never installs packages or changes configuration.
 
 If the pinned dependency is missing, show the exact repair command:
 
@@ -109,10 +109,10 @@ The script:
 - calls the pinned `yt-dlp` Python API directly;
 - never invokes a shell or external executable;
 - accepts only a loopback proxy port and no proxy credentials;
-- writes `meta.json` and `transcript.txt` to the managed system temporary directory;
+- writes `meta.json` and `transcript.txt` to a private per-user cache under the system temporary directory;
 - prints the cache directory as JSON.
 
-Temporary cache is not a durable archive. Create a user-visible note file only when the user explicitly requests one.
+The cache hierarchy must be owned by the current user with `0700` directory permissions. Cache files use atomic replacement, `0600` permissions, and reject symbolic links. Temporary cache is not a durable archive. Create a user-visible note file only when the user explicitly requests one.
 
 ### Supplied transcript
 
