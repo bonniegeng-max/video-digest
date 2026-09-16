@@ -1,4 +1,4 @@
-# Video Deep Reader 2.0.4
+# Video Deep Reader 2.0.5
 
 Turn a YouTube link, video ID, or supplied transcript into timestamped notes that help you decide, understand, or verify.
 
@@ -54,10 +54,9 @@ This per-user cache is not durable storage. Its root and subdirectories must be 
 Retrieval accepts a video ID rather than an arbitrary local path:
 
 ```bash
-python3 scripts/retrieve.py <video-id> "keyword"
-python3 scripts/retrieve.py <video-id> --at 3:20
-python3 scripts/retrieve.py <video-id> --list
-python3 scripts/retrieve.py <video-id> "注意力" --synonyms zh-en
+python3 scripts/fetch_video.py --retrieve-video <video-id> --keyword "attention"
+python3 scripts/fetch_video.py --retrieve-video <video-id> --at 3:20
+python3 scripts/fetch_video.py --retrieve-video <video-id> --list
 ```
 
 ## Transcript fallback
@@ -66,7 +65,7 @@ If a video has no accessible subtitles, paste or upload a transcript. Video Deep
 
 ## Language
 
-Notes follow the language of the current request. Helper scripts emit JSON, status codes, and transcript text rather than localized prose; the calling agent explains results in the user's language. Chinese-to-English technical query expansion runs only with `--synonyms zh-en`.
+Notes follow the language of the current request. The single helper emits JSON, status codes, and transcript text rather than localized prose; the calling agent explains results in the user's language.
 
 ## Safety
 

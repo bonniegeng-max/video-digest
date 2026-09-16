@@ -1,5 +1,11 @@
 # Changelog
 
+## 2.0.5 — 2026-09-17
+
+- Merged managed transcript retrieval into the single fetch helper.
+- Removed the separate retrieval script and its language-specific synonym table.
+- Kept exact keyword, timestamp-window, and sparse-list retrieval as JSON modes.
+
 ## 2.0.4 — 2026-09-17
 
 - Removed localized natural-language UI behavior from helper scripts.

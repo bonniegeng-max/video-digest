@@ -16,6 +16,7 @@ PINNED_VERSION = "2026.8.19"
 CACHE_ROOT = Path(tempfile.gettempdir()) / f"video-deep-reader-{os.geteuid()}"
 VIDEO_ID = re.compile(r"^[A-Za-z0-9_-]{6,40}$")
 YOUTUBE_HOSTS = ("youtube.com", "youtu.be", "youtube-nocookie.com")
+TRANSCRIPT_LINE = re.compile(r"^\[(\d{1,2}:\d{2}(?::\d{2})?)\]\s*(.+)$")
 
 
 class QuietLogger:
@@ -92,6 +93,18 @@ def format_ts(seconds):
     hours, remainder = divmod(seconds, 3600)
     minutes, secs = divmod(remainder, 60)
     return f"{hours}:{minutes:02d}:{secs:02d}" if hours else f"{minutes:02d}:{secs:02d}"
+
+
+def ts_to_seconds(value):
+    try:
+        parts = [int(item) for item in value.split(":")]
+    except ValueError:
+        return None
+    if len(parts) == 2:
+        return parts[0] * 60 + parts[1]
+    if len(parts) == 3:
+        return parts[0] * 3600 + parts[1] * 60 + parts[2]
+    return None
 
 
 def safe_name(value):
@@ -237,6 +250,83 @@ def write_private(path, content):
             temporary_path.unlink()
 
 
+def find_transcript(video_id, root=CACHE_ROOT):
+    """Find exactly one validated transcript for a video ID."""
+    if not VIDEO_ID.fullmatch(video_id):
+        raise ValueError("invalid video ID")
+    secure_directory(root)
+    safe = []
+    for channel in root.iterdir():
+        if channel.is_symlink():
+            continue
+        try:
+            secure_directory(channel)
+        except RuntimeError:
+            continue
+        video_dir = channel / video_id
+        if not video_dir.exists() or video_dir.is_symlink():
+            continue
+        try:
+            secure_directory(video_dir)
+        except RuntimeError:
+            continue
+        transcript = video_dir / "transcript.txt"
+        if not transcript.exists() or transcript.is_symlink():
+            continue
+        info = transcript.lstat()
+        if stat.S_ISREG(info.st_mode) and info.st_uid == os.geteuid():
+            safe.append(transcript)
+    if len(safe) != 1:
+        raise FileNotFoundError(f"expected one managed transcript, found {len(safe)}")
+    return safe[0]
+
+
+def parse_transcript(path):
+    entries = []
+    for line in path.read_text(encoding="utf-8").splitlines():
+        match = TRANSCRIPT_LINE.match(line)
+        if not match:
+            continue
+        seconds = ts_to_seconds(match.group(1))
+        if seconds is not None:
+            entries.append((seconds, match.group(1), match.group(2)))
+    return entries
+
+
+def retrieve(
+    video_id,
+    keyword=None,
+    at=None,
+    window=30,
+    list_mode=False,
+    root=CACHE_ROOT,
+):
+    entries = parse_transcript(find_transcript(video_id, root))
+    if not entries:
+        return {"status": "empty", "results": []}
+    if list_mode:
+        step = max(1, len(entries) // 40)
+        selected = entries[::step]
+    elif at:
+        center = ts_to_seconds(at)
+        if center is None:
+            raise ValueError("invalid timestamp")
+        selected = [
+            item for item in entries
+            if center - window <= item[0] <= center + window
+        ]
+    else:
+        lowered = (keyword or "").lower()
+        selected = [item for item in entries if lowered in item[2].lower()]
+    return {
+        "status": "ok" if selected else "no_match",
+        "results": [
+            {"seconds": seconds, "timestamp": stamp, "text": text}
+            for seconds, stamp, text in selected
+        ],
+    }
+
+
 def safe_error(error):
     """Return a bounded error without credential or bypass instructions."""
     value = str(error).lower()
@@ -340,7 +430,31 @@ def main():
     parser.add_argument("--proxy-port", type=int, choices=range(1, 65536))
     parser.add_argument("--doctor", action="store_true", help="Run a read-only dependency check")
     parser.add_argument("--network", action="store_true", help="With --doctor, test YouTube access")
+    parser.add_argument("--retrieve-video", help="Retrieve one managed transcript by video ID")
+    parser.add_argument("--keyword")
+    parser.add_argument("--at")
+    parser.add_argument("--window", type=int, default=30)
+    parser.add_argument("--list", action="store_true")
     args = parser.parse_args()
+
+    if args.retrieve_video:
+        if args.references or args.doctor or args.network:
+            parser.error("retrieval cannot be combined with fetch or doctor mode")
+        if sum((bool(args.keyword), bool(args.at), bool(args.list))) != 1:
+            parser.error("choose exactly one of --keyword, --at, or --list")
+        try:
+            result = retrieve(
+                args.retrieve_video,
+                keyword=args.keyword,
+                at=args.at,
+                window=args.window,
+                list_mode=args.list,
+            )
+        except (ValueError, FileNotFoundError) as exc:
+            print(json.dumps({"status": "error", "error": str(exc)}))
+            return 2
+        print(json.dumps(result, ensure_ascii=False, indent=2))
+        return 0 if result["status"] == "ok" else 1
 
     if args.doctor:
         if args.references:
