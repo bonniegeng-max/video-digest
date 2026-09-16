@@ -1,4 +1,4 @@
-# Video Deep Reader 2.0.3
+# Video Deep Reader 2.0.4
 
 Turn a YouTube link, video ID, or supplied transcript into timestamped notes that help you decide, understand, or verify.
 
@@ -20,7 +20,7 @@ Doctor is read-only and does not install anything:
 ```bash
 python3 scripts/fetch_video.py --doctor
 python3 scripts/fetch_video.py --doctor --network
-python3 scripts/fetch_video.py --doctor --network --proxy-port 7890 --ui-lang zh
+python3 scripts/fetch_video.py --doctor --network --proxy-port 7890
 ```
 
 If the pinned dependency is missing:
@@ -35,8 +35,8 @@ The lock file pins `yt-dlp==2026.8.19` and verifies the downloaded wheel hash.
 ## Fetch subtitles
 
 ```bash
-python3 scripts/fetch_video.py "https://www.youtube.com/watch?v=..." --ui-lang en
-python3 scripts/fetch_video.py "https://youtu.be/..." --proxy-port 7890 --ui-lang zh
+python3 scripts/fetch_video.py "https://www.youtube.com/watch?v=..."
+python3 scripts/fetch_video.py "https://youtu.be/..." --proxy-port 7890
 ```
 
 The script directly calls the pinned `yt-dlp` Python API. It does not invoke a shell, read proxy credentials, or accept an arbitrary output directory.
@@ -54,10 +54,10 @@ This per-user cache is not durable storage. Its root and subdirectories must be 
 Retrieval accepts a video ID rather than an arbitrary local path:
 
 ```bash
-python3 scripts/retrieve.py <video-id> "keyword" --ui-lang en
-python3 scripts/retrieve.py <video-id> --at 3:20 --ui-lang en
-python3 scripts/retrieve.py <video-id> --list --ui-lang en
-python3 scripts/retrieve.py <video-id> "注意力" --synonyms zh-en --ui-lang zh
+python3 scripts/retrieve.py <video-id> "keyword"
+python3 scripts/retrieve.py <video-id> --at 3:20
+python3 scripts/retrieve.py <video-id> --list
+python3 scripts/retrieve.py <video-id> "注意力" --synonyms zh-en
 ```
 
 ## Transcript fallback
@@ -66,7 +66,7 @@ If a video has no accessible subtitles, paste or upload a transcript. Video Deep
 
 ## Language
 
-Notes follow the language of the current request. Scripts accept `--ui-lang <language>` and otherwise follow the local interface language with English fallback. Chinese-to-English technical query expansion runs only with `--synonyms zh-en`.
+Notes follow the language of the current request. Helper scripts emit JSON, status codes, and transcript text rather than localized prose; the calling agent explains results in the user's language. Chinese-to-English technical query expansion runs only with `--synonyms zh-en`.
 
 ## Safety
 

@@ -1,6 +1,6 @@
 ---
 name: video-digest
-version: 2.0.3
+version: 2.0.4
 description: Check the pinned transcript dependency and optionally test YouTube connectivity, fetch public captions into a private per-user cache, retrieve excerpts by video ID, and turn captions or a supplied transcript into timestamped Quick, Deep, or Research notes.
 allowed-tools: RunCommand, Bash, Read, Write, WebSearch, WebFetch
 metadata:
@@ -51,7 +51,7 @@ Do not invoke for:
 
 Respond in the language of the user's current request. If unclear, ask once. Preserve quotations in their original language and add a translation only when useful.
 
-Bundled scripts accept `--ui-lang <language>` and otherwise follow the local interface language, with English as a fallback.
+Bundled scripts emit machine-readable JSON, status codes, and transcript text rather than a localized natural-language interface. Explain their results in the language of the user's current request.
 
 ## Select the Mode
 
@@ -69,7 +69,7 @@ If the requested depth is ambiguous, use Quick as the content mode. Still follow
 Run the read-only doctor before the first URL fetch in a session:
 
 ```bash
-python3 <skill_dir>/scripts/fetch_video.py --doctor --ui-lang zh
+python3 <skill_dir>/scripts/fetch_video.py --doctor
 ```
 
 Add `--network` only when a network diagnosis is needed. If a local proxy should be tested, pass its loopback port explicitly with `--proxy-port`; Doctor does not scan local ports. Doctor never installs packages or changes configuration.
@@ -90,13 +90,13 @@ Do not install anything without explicit user approval.
 Run:
 
 ```bash
-python3 <skill_dir>/scripts/fetch_video.py "<youtube-url>" --ui-lang zh
+python3 <skill_dir>/scripts/fetch_video.py "<youtube-url>"
 ```
 
 For a local proxy, pass only the loopback port:
 
 ```bash
-python3 <skill_dir>/scripts/fetch_video.py "<youtube-url>" --proxy-port 7890 --ui-lang zh
+python3 <skill_dir>/scripts/fetch_video.py "<youtube-url>" --proxy-port 7890
 ```
 
 The script:
@@ -176,9 +176,9 @@ Compare videos only on common dimensions.
 The retrieval script accepts a video ID, never an arbitrary file path:
 
 ```bash
-python3 <skill_dir>/scripts/retrieve.py <video-id> "keyword" --ui-lang zh
-python3 <skill_dir>/scripts/retrieve.py <video-id> --at 3:20 --ui-lang zh
-python3 <skill_dir>/scripts/retrieve.py <video-id> --list --ui-lang zh
+python3 <skill_dir>/scripts/retrieve.py <video-id> "keyword"
+python3 <skill_dir>/scripts/retrieve.py <video-id> --at 3:20
+python3 <skill_dir>/scripts/retrieve.py <video-id> --list
 ```
 
 It reads only transcripts created under the managed temporary cache. Quote the relevant timestamp range in the answer.
@@ -186,7 +186,7 @@ It reads only transcripts created under the managed temporary cache. Quote the r
 Chinese-to-English technical query expansion is optional and must be enabled explicitly:
 
 ```bash
-python3 <skill_dir>/scripts/retrieve.py <video-id> "注意力" --synonyms zh-en --ui-lang zh
+python3 <skill_dir>/scripts/retrieve.py <video-id> "注意力" --synonyms zh-en
 ```
 
 ## Content Integrity

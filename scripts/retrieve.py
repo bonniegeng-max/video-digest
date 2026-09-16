@@ -2,7 +2,6 @@
 """Retrieve timestamped excerpts from the managed temporary cache."""
 
 import argparse
-import locale
 import os
 import re
 import stat
@@ -129,13 +128,6 @@ def keyword_matches(entries, keyword, synonym_mode="none"):
     return indexes, used
 
 
-def interface_language(requested):
-    if requested and requested != "auto":
-        return "zh" if requested.lower().startswith("zh") else "en"
-    current = locale.getlocale()[0] or ""
-    return "zh" if current.lower().startswith("zh") else "en"
-
-
 def main():
     parser = argparse.ArgumentParser(
         description="Search one managed Video Deep Reader transcript."
@@ -152,9 +144,7 @@ def main():
         default="none",
         help="Optional query expansion; zh-en maps selected Chinese technical terms",
     )
-    parser.add_argument("--ui-lang", default="auto", help="UI language or auto")
     args = parser.parse_args()
-    ui_lang = interface_language(args.ui_lang)
 
     if sum((bool(args.keyword), bool(args.at), bool(args.list))) != 1:
         print("Choose exactly one of keyword, --at, or --list.", file=sys.stderr)
@@ -197,8 +187,7 @@ def main():
                     seen.add(cursor)
 
     if not selected:
-        text = "没有命中。" if ui_lang == "zh" else "No matches."
-        print(text, file=sys.stderr)
+        print("NO_MATCH", file=sys.stderr)
         return 1
     if note:
         print(f"synonym: {note}")

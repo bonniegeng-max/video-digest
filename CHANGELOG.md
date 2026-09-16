@@ -1,5 +1,11 @@
 # Changelog
 
+## 2.0.4 — 2026-09-17
+
+- Removed localized natural-language UI behavior from helper scripts.
+- Standardized helper output on JSON, status codes, and source transcript text.
+- Kept all user-facing explanations in the agent layer, which follows the user's request language.
+
 ## 2.0.3 — 2026-09-17
 
 - Merged the read-only Doctor into `fetch_video.py --doctor` so the runtime helper contains both readiness and caption-fetching behavior.

@@ -3,7 +3,6 @@
 
 import argparse
 import json
-import locale
 import os
 import re
 import stat
@@ -86,13 +85,6 @@ def network_status(proxy_port=None):
         return {"checked": True, "ok": status < 400, "status": status}
     except Exception as exc:
         return {"checked": True, "ok": False, "error": type(exc).__name__}
-
-
-def interface_language(requested):
-    if requested and requested != "auto":
-        return "zh" if requested.lower().startswith("zh") else "en"
-    current = locale.getlocale()[0] or ""
-    return "zh" if current.lower().startswith("zh") else "en"
 
 
 def format_ts(seconds):
@@ -346,11 +338,9 @@ def main():
     parser.add_argument("references", nargs="*", help="YouTube URLs or video IDs")
     parser.add_argument("--langs", default="en,zh", help="Subtitle preference, e.g. en,zh")
     parser.add_argument("--proxy-port", type=int, choices=range(1, 65536))
-    parser.add_argument("--ui-lang", default="auto", help="UI language or auto")
     parser.add_argument("--doctor", action="store_true", help="Run a read-only dependency check")
     parser.add_argument("--network", action="store_true", help="With --doctor, test YouTube access")
     args = parser.parse_args()
-    ui_lang = interface_language(args.ui_lang)
 
     if args.doctor:
         if args.references:
@@ -365,13 +355,10 @@ def main():
             "network": {"checked": False},
         }
         if args.network:
-            notice = (
-                "将向 YouTube 发送一次有时限的连通性检查。"
-                if ui_lang == "zh"
-                else "Sending one bounded connectivity check to YouTube."
-            )
-            print(notice, file=sys.stderr)
             result["network"] = network_status(args.proxy_port)
+            result["network"]["disclosure"] = (
+                "One bounded request was sent to YouTube."
+            )
         result["ready"] = (
             result["python"]["ok"]
             and result["yt_dlp"]["ok"]
@@ -390,10 +377,7 @@ def main():
     if args.network:
         parser.error("--network is only valid with --doctor")
     if not all(is_youtube_ref(item) for item in args.references):
-        text = "仅接受 YouTube 链接或视频 ID。" if ui_lang == "zh" else (
-            "Only YouTube URLs or video IDs are accepted."
-        )
-        print(text, file=sys.stderr)
+        print(json.dumps({"error": "invalid_youtube_reference"}), file=sys.stderr)
         return 2
     try:
         yt_dlp = load_yt_dlp()
@@ -401,12 +385,6 @@ def main():
         print(str(exc), file=sys.stderr)
         return 2
 
-    notice = (
-        "将向 YouTube 发送所提供的视频引用并读取公开元数据和字幕。"
-        if ui_lang == "zh"
-        else "Contacting YouTube with the supplied video reference to retrieve public metadata and captions."
-    )
-    print(notice, file=sys.stderr)
     languages = [item.strip().lower() for item in args.langs.split(",") if item.strip()]
     results = []
     for reference in args.references:
@@ -416,7 +394,13 @@ def main():
             results.append(
                 {"status": "error", "reference": reference, "error": safe_error(exc)}
             )
-    print(json.dumps(results, ensure_ascii=False, indent=2))
+    print(json.dumps({
+        "network_disclosure": (
+            "Supplied video references were sent to YouTube to retrieve public "
+            "metadata and captions."
+        ),
+        "results": results,
+    }, ensure_ascii=False, indent=2))
     if any(item["status"] == "error" for item in results):
         return 3
     if any(item["status"] == "no_subtitle" for item in results):
