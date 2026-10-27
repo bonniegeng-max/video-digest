@@ -1,5 +1,9 @@
 # Changelog
 
+## 2.0.6 — 2026-10-27
+
+- 首屏重写：description 首句从"检查字幕依赖"改成价值句（三十分钟的视频花三分钟读完，每句能定位回原片），中文前置，依赖检查退到功能描述之后。功能与脚本零变化。
+
 ## 2.0.5 — 2026-09-17
 
 - Merged managed transcript retrieval into the single fetch helper.
